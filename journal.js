@@ -10,11 +10,21 @@
 * wrapped into @users table in SYSTEM db durable obect.
 * used 2 SQLite durable objects: 1 for SYSTEM (users) and 1 for ITEMS (data) to isolate access for 1 worker
 */
-//  ====   key data structures   ==== //
+
+
+
+//  ====   KEY DATA FIELDS  ==== //
 
 
 items.record.doctype = "Task" | "Note" | "Project" | etc  //exact doctype from frappe json
 if( items.record.doctype === "Schema" ) {/* reserved doctype for  schema. Schema is exact frappe one`*/}
+
+// ==== record.data and top level fields ==== //
+/** if implementaiton needs top level fields like pocketbase or SQLite for faster operations, 
+ * we always duplicate record.doctype = record.data.doctype 
+ * so the flow is to set required top level first in record.data then sync to top level fields
+ *  
+ */
 
 
 /* SCHEMA MANAGEMENT */
@@ -464,6 +474,15 @@ schema =
     "title_field": "subject",
     "track_seen": 1
 }
+
+
+/* IDENTIFICATION OF DOCUEMNTS DY NAME - SPECIAL ID / 
+/** naming/id of documents 
+ * "id" field is reserved for internal use and is not used in code, just kept in all tables
+ * if its required we generate it from record.dataname or record.data.id
+ * 
+ * 
+*/
 
 
 
