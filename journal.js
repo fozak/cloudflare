@@ -12,6 +12,28 @@
 */
 
 
+/**
+ * OUR ARCHITECTURE
+ * Durable Object + SQLite Backend
+ * 
+ * This entry documents the current state and intent of the
+ * Cloudflare Worker + 2 Durable Object implementations. 
+ *
+ * We separate into 2 dbs as durable object unfortunately cannot separate 100% the table access for worker
+ */
+
+const configDb = {
+  items: {
+    "dbName": "ITEMS",      // binding in env
+    "className": "items",   // actual class name
+    "table": "items"        // table name
+  },
+  system: {
+    "dbName": "SYSTEM",     // binding in env
+    "className": "system",  // actual class name
+    "table": "system"       // table name
+  }
+}
 
 //  ====   KEY DATA FIELDS  ==== //
 
