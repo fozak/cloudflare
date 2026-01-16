@@ -666,3 +666,14 @@ Same applies to your functions or permissions fields.
     })
   }
 });
+
+//WE have added is_default
+  await coworker.run({
+  operation: "update",
+  doctype: "Adapter",
+  query: { where: { adapter_name: "JSONPlaceholder" }},
+
+  input: {
+    is_default: 1    },
+    
+});
