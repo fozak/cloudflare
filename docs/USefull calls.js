@@ -1,3 +1,142 @@
+
+await coworker.run({
+  operation: "create",
+  doctype: "State Machine",
+  input: {
+    statemachine_name: "Document_FSM",
+    states: { /* ... */ },
+    rules: { /* ... */ },
+    sequences: { /* ... */ }
+  }
+});
+
+const states = (await coworker.run({
+operation: "select",
+from: "Task",
+view: "form",
+query: { where: { name: "TASK-2025-00003" } }
+})).target.data[0]._states;
+
+
+await coworker.run({
+
+  operation: "select",
+
+  from: "Task",
+
+  view: "form",
+
+  query: { where: { name: "TASK-2025-00003" } }});
+
+await coworker.run({
+  operation: "select",
+  from: "Task",
+  view: "form"
+});
+
+
+(() => {
+  const schema = CoworkerState.getCurrentRun().target.schema;
+  const buttonFields = schema?.fields.filter(f => f.fieldtype === "Button");
+  console.log("Button fields in schema:", buttonFields);
+})();
+
+await coworker.run({
+
+  operation: "select",
+
+  from: "Task",
+
+  view: "form",
+
+  query: { where: { name: "Task-q2qqzt6evxghb00" } }});
+
+
+
+// Get system fields (from DocType schema)
+const systemResult = await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "DocType" } }
+});
+
+// Get specific doctype schema (Sales Invoice)
+const doctypeResult = await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "Sales Invoice" } }
+});
+
+// Extract field names from system fields
+const systemFieldNames = new Set(
+  systemResult.target.data[0].field_order.map(f => f.fieldname)
+);
+
+// Sales Invoice schema object
+const salesInvoiceSchema = doctypeResult.target.data[0];
+
+// Find which Sales Invoice fields are system fields
+const systemFieldsInDoctype = salesInvoiceSchema.fields.filter(
+  f => systemFieldNames.has(f.fieldname)
+);
+
+console.log('System fields found in Sales Invoice:', systemFieldsInDoctype);
+console.log('Field names:', systemFieldsInDoctype.map(f => f.fieldname));
+
+// Get system fields (from DocType schema)
+const systemResult = await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "DocType" } }
+});
+
+// Get specific doctype fields (Sales Invoice)
+const doctypeResult = await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "Sales Invoice" } }
+});
+
+// Extract field names from system fields
+const systemFieldNames = new Set(
+  systemResult.target.data[0].field_order.map(f => f.fieldname)
+);
+
+// Find which Sales Invoice fields are system fields
+const systemFieldsInDoctype = doctypeResult.target.data[0].filter(
+  f => systemFieldNames.has(f.fieldname)
+);
+
+console.log('System fields found in Sales Invoice:', systemFieldsInDoctype);
+console.log('Field names:', systemFieldsInDoctype.map(f => f.fieldname));
+
+
+
+
+
+await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "Sales Invoice" } }}); 
+
+  await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { _schema_doctype: "DocType" } }}); 
+
+await coworker.run({
+  operation: "select",
+  from: "DocType",
+  view: "form",
+  query: { where: { name: "Task" } }}); 
+
+
 await coworker.run({
   operation: "select",
   from: "Adapter",
