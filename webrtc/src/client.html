@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html>
+<head><title>Auto WebRTC</title></head>
+<body>
+<h2>Auto P2P Call</h2>
+<video id="local" autoplay muted playsinline style="width:300px"></video>
+<video id="remote" autoplay playsinline style="width:300px"></video>
+<div id="status">Connecting...</div>
+
+<script>
+const ws = new WebSocket("wss://webrtc-signaling.i771468.workers.dev");
+const pc = new RTCPeerConnection({iceServers: [{urls: "stun:74.125.140.127:19302"}]});
+
+navigator.mediaDevices.getUserMedia({audio: true, video: true})
+  .then(s => { document.getElementById("local").srcObject = s; s.getTracks().forEach(t => pc.addTrack(t, s)); });
+
+pc.ontrack = e => document.getElementById("remote").srcObject = e.streams[0];
+pc.onicecandidate = e => e.candidate && ws.send(JSON.stringify({ice: e.candidate}));
+pc.oniceconnectionstatechange = () => document.getElementById("status").textContent = pc.iceConnectionState;
+
+ws.onmessage = async e => {
+  const msg = JSON.parse(e.data);
+  if (msg.offer) {
+    await pc.setRemoteDescription(msg.offer);
+    await pc.setLocalDescription(await pc.createAnswer());
+    ws.send(JSON.stringify({answer: pc.localDescription}));
+  } else if (msg.answer) {
+    await pc.setRemoteDescription(msg.answer);
+  } else if (msg.ice) {
+    await pc.addIceCandidate(msg.ice);
+  }
+};
+
+ws.onopen = async () => {
+  if (Math.random() > 0.5) { // One peer creates offer
+    await pc.setLocalDescription(await pc.createOffer());
+    ws.send(JSON.stringify({offer: pc.localDescription}));
+  }
+};
+</script>
+</body>
+</html>
