@@ -1,4 +1,3 @@
-// Cloudflare Worker - signaling.js
 let peers = [];
 
 export default {
@@ -9,18 +8,30 @@ export default {
       
       server.accept();
       peers.push(server);
+      console.log("Peer connected, total peers:", peers.length);
       
       server.addEventListener("message", e => {
-        peers.forEach(p => p !== server && p.send(e.data));
+        console.log("Relaying message to", peers.length - 1, "other peers");
+        peers.forEach(p => {
+          if (p !== server) {
+            try {
+              p.send(e.data);
+              console.log("Sent to peer");
+            } catch (err) {
+              console.error("Failed to send:", err);
+            }
+          }
+        });
       });
       
       server.addEventListener("close", () => {
         peers = peers.filter(p => p !== server);
+        console.log("Peer disconnected, remaining:", peers.length);
       });
       
       return new Response(null, { status: 101, webSocket: client });
     }
     
-    return new Response("OK");
+    return new Response("Signaling Server");
   }
 };
