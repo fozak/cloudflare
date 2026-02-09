@@ -3,17 +3,31 @@
 <head><title>Auto WebRTC</title></head>
 <body>
 <h2>Auto P2P Call</h2>
-<input id="role" placeholder="Enter 'caller' or 'receiver'" style="width:200px">
+<input id="role" placeholder="caller or receiver" style="width:150px">
 <button id="start">Start</button>
+<button id="debug">Debug</button>
+<button id="offer">Force Offer</button>
+<br>
 <video id="local" autoplay muted playsinline style="width:300px"></video>
 <video id="remote" autoplay playsinline style="width:300px"></video>
 <div id="status">Enter role and click Start</div>
+<div id="console" style="border:1px solid #ccc;padding:10px;margin-top:10px;height:200px;overflow-y:scroll;font-family:monospace;font-size:12px;background:#f5f5f5"></div>
 
 <script>
 let ws, pc;
+const consoleDiv = document.getElementById("console");
+
+function log(msg) {
+  const line = document.createElement("div");
+  line.textContent = new Date().toLocaleTimeString() + " - " + msg;
+  consoleDiv.appendChild(line);
+  consoleDiv.scrollTop = consoleDiv.scrollHeight;
+  console.log(msg);
+}
 
 document.getElementById("start").onclick = async () => {
   const role = document.getElementById("role").value.trim();
+  log("Starting as: " + role);
   
   ws = new WebSocket("wss://webrtc-signaling.i771468.workers.dev");
   pc = new RTCPeerConnection({iceServers: [{urls: "stun:74.125.140.127:19302"}]});
@@ -21,33 +35,78 @@ document.getElementById("start").onclick = async () => {
   const stream = await navigator.mediaDevices.getUserMedia({audio: true, video: true});
   document.getElementById("local").srcObject = stream;
   stream.getTracks().forEach(t => pc.addTrack(t, stream));
+  log("Local media added");
 
-  pc.ontrack = e => document.getElementById("remote").srcObject = e.streams[0];
-  pc.onicecandidate = e => e.candidate && ws.send(JSON.stringify({ice: e.candidate}));
-  pc.oniceconnectionstatechange = () => document.getElementById("status").textContent = pc.iceConnectionState;
-
-  ws.onmessage = async e => {
-    const msg = JSON.parse(e.data);
-    if (msg.offer) {
-      await pc.setRemoteDescription(msg.offer);
-      await pc.setLocalDescription(await pc.createAnswer());
-      ws.send(JSON.stringify({answer: pc.localDescription}));
-    } else if (msg.answer) {
-      await pc.setRemoteDescription(msg.answer);
-    } else if (msg.ice) {
-      await pc.addIceCandidate(msg.ice);
+  pc.ontrack = e => {
+    log("Remote track received!");
+    document.getElementById("remote").srcObject = e.streams[0];
+  };
+  
+  pc.onicecandidate = e => {
+    if (e.candidate) {
+      log("ICE candidate: " + e.candidate.candidate.substring(0, 50) + "...");
+      ws.send(JSON.stringify({ice: e.candidate}));
+    } else {
+      log("ICE gathering complete");
     }
+  };
+  
+  pc.oniceconnectionstatechange = () => {
+    log("ICE state: " + pc.iceConnectionState);
+    document.getElementById("status").textContent = pc.iceConnectionState;
   };
 
   ws.onopen = async () => {
+    log("WebSocket OPEN");
     if (role === "caller") {
       await pc.setLocalDescription(await pc.createOffer());
+      log("Sending offer, signaling: " + pc.signalingState);
       ws.send(JSON.stringify({offer: pc.localDescription}));
       document.getElementById("status").textContent = "Calling...";
     } else {
       document.getElementById("status").textContent = "Waiting for call...";
     }
   };
+
+  ws.onmessage = async e => {
+    const msg = JSON.parse(e.data);
+    log("Received: " + Object.keys(msg)[0]);
+    
+    if (msg.offer) {
+      log("Setting remote offer");
+      await pc.setRemoteDescription(msg.offer);
+      await pc.setLocalDescription(await pc.createAnswer());
+      log("Sending answer, signaling: " + pc.signalingState);
+      ws.send(JSON.stringify({answer: pc.localDescription}));
+    } else if (msg.answer) {
+      log("Setting remote answer");
+      await pc.setRemoteDescription(msg.answer);
+      log("Signaling: " + pc.signalingState);
+    } else if (msg.ice) {
+      log("Adding ICE candidate");
+      await pc.addIceCandidate(msg.ice);
+    }
+  };
+
+  ws.onerror = e => log("WebSocket ERROR: " + e);
+  ws.onclose = e => log("WebSocket CLOSED: " + e.code);
+};
+
+document.getElementById("debug").onclick = () => {
+  if (!pc || !ws) return log("Not started yet");
+  log("=== DEBUG ===");
+  log("ICE: " + pc.iceConnectionState);
+  log("Connection: " + pc.connectionState);
+  log("Signaling: " + pc.signalingState);
+  log("WebSocket: " + ["CONNECTING","OPEN","CLOSING","CLOSED"][ws.readyState]);
+};
+
+document.getElementById("offer").onclick = async () => {
+  if (!pc || !ws) return log("Not started yet");
+  log("Force sending offer...");
+  await pc.setLocalDescription(await pc.createOffer());
+  ws.send(JSON.stringify({offer: pc.localDescription}));
+  log("Offer sent, signaling: " + pc.signalingState);
 };
 </script>
 </body>
