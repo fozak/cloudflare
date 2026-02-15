@@ -1,37 +1,49 @@
-let peers = [];
+export class SignalingRoom {
+  constructor(state) {
+    this.state = state;
+    this.sessions = [];
+  }
 
-export default {
   async fetch(request) {
     if (request.headers.get("Upgrade") === "websocket") {
       const pair = new WebSocketPair();
       const [client, server] = Object.values(pair);
       
       server.accept();
-      peers.push(server);
-      console.log("Peer connected, total peers:", peers.length);
+      this.sessions.push(server);
+      console.log("Session added, total:", this.sessions.length);
       
       server.addEventListener("message", e => {
-        console.log("Relaying message to", peers.length - 1, "other peers");
-        peers.forEach(p => {
-          if (p !== server) {
-            try {
-              p.send(e.data);
-              console.log("Sent to peer");
-            } catch (err) {
-              console.error("Failed to send:", err);
-            }
+        console.log("Broadcasting to", this.sessions.length - 1, "sessions");
+        this.sessions.forEach(s => {
+          if (s !== server && s.readyState === 1) {
+            s.send(e.data);
           }
         });
       });
       
       server.addEventListener("close", () => {
-        peers = peers.filter(p => p !== server);
-        console.log("Peer disconnected, remaining:", peers.length);
+        this.sessions = this.sessions.filter(s => s !== server);
+        console.log("Session removed, remaining:", this.sessions.length);
       });
       
-      return new Response(null, { status: 101, webSocket: client });
+      server.addEventListener("error", e => {
+        console.error("WebSocket error:", e);
+      });
+      
+      return new Response(null, {status: 101, webSocket: client});
     }
-    
+    return new Response("OK");
+  }
+}
+
+export default {
+  async fetch(request, env) {
+    if (request.headers.get("Upgrade") === "websocket") {
+      const id = env.SIGNALING.idFromName("default-room");
+      const stub = env.SIGNALING.get(id);
+      return stub.fetch(request);
+    }
     return new Response("Signaling Server");
   }
 };

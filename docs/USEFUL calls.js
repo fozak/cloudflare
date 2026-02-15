@@ -1,3 +1,50 @@
+
+CW.Adapter['adapterq8i39mys']  // ✅ Works
+CW.Adapter['http-gateway']      // ❌ Undefined
+
+CW.Schema["schemastattgy3m"]
+
+await CW.compileAll();
+
+// Now use them
+const gateway = CW.Adapter['http-gateway'];
+coworker-state.js:205 ✓ Compiled 6 function(s)
+coworker-state.js:240 ✓ Compiled 1 document(s)
+1
+gateway
+undefined
+CW.Adapter['http-gateway']  <-doesntworkYET
+undefined
+CW.Adapter
+{adapterqlegh6hr: {…}, adapterb7l0z4ur: {…}, adapterq8i39mys: {…}}
+adapterb7l0z4ur
+: 
+{_states: '', adapter_name: 'pocketbase', config: {…}, doctype: 'Adapter', functions: {…}, …}
+adapterq8i39mys
+: 
+{_allowed_read: '', _states: '', adapter_name: 'http-gateway', config: {…}, doctype: 'Adapter', …}
+adapterqlegh6hr
+: 
+{_allowed: '', _allowed_read: '', adapter_name: 'memory', config: {…}, doctype: 'Adapter', …}
+[[Prototype]]
+: 
+Object
+
+
+await coworker.run({
+  operation: "create",
+  doctype: "Adapter",
+  input: {
+    adapter_name: "http-gateway",
+  }
+});
+http-gateway
+
+{
+    "url": "http://143.198.29.88:8090/",
+    "autoCancellation": false,
+    "defaultCollection": "item"
+}
 //Adapters
 
 CW.Adapter.adapterb7l0z4ur
@@ -19,6 +66,14 @@ await coworker.run({
   }
 });
 
+await coworker.run({
+  operation: "create",
+  doctype: "Adapter",
+  input: {
+    adapter_name: "adapter_auth_001",
+  }
+});
+adapter_auth_001
 
 
 await coworker.run({

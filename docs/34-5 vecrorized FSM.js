@@ -1,3 +1,809 @@
+"_state" =
+{
+ 
+    "fieldname": "_state",
+    "values": [0, 1, 2, 3, 4],
+    "options": ["Invited", "Active", "Locked", "Password Reset Pending", "Disabled"],
+    
+    "transitions": {
+      "0": [1, 4],
+      "1": [2, 3, 4],
+      "2": [1, 4],
+      "3": [1, 2, 4],
+      "4": [1]
+    },
+    
+    "labels": {
+      "0_1": "Activate User",
+      "0_4": "Cancel Invitation",
+      "1_2": "Lock Account",
+      "1_3": "Require Password Reset",
+      "1_4": "Disable User",
+      "2_1": "Unlock Account",
+      "2_4": "Disable User",
+      "3_1": "Complete Reset",
+      "3_2": "Lock Account",
+      "3_4": "Disable User",
+      "4_1": "Re-enable User"
+    },
+
+
+  "rules": {
+    "0_1": "(run_doc) => run_doc.target.data[0].verified === true",
+    "1_2": "(run_doc) => run_doc.target.data[0].enabled === true",
+    "3_1": "(run_doc) => !!run_doc.target.data[0].password_changed_at"
+  },
+
+  "sideEffects": {
+    "0_1": "async (run_doc) => { ... }",
+    "1_2": "async (run_doc) => { ... }",
+    "1_3": "async (run_doc) => { ... }",
+    "2_1": "async (run_doc) => { ... }",
+    "3_1": "async (run_doc) => { ... }"
+  }
+}
+
+
+
+
+//User SPECIFIC states (deleted is on higher level CORE, dont include) 
+
+invited  //added , (optional)
+enabled = true
+locked = true
+verified = true //not required 
+requiredActions = [] = _state (_state field) /like PASSWORD_RESET_PENDING
+
+
+
+//version 4
+const fsm = {
+  fieldname: "status",
+  values: [0, 1, 2, 3, 4, 5, 6],
+  options: ["Open", "Working", "Pending Review", "Overdue", "Template", "Completed", "Cancelled"],
+  transitions: {
+    0: [1, 6],
+    1: [2, 3, 6],
+    2: [1, 5, 6],
+    3: [1, 6],
+    5: [0],
+    6: [0]
+  },
+  rules: ["2_5", "1_3"],
+  sideEffects: ["2_5", "0_1", "1_2"]
+};
+
+// Rules are inline logic
+CW.Adapter.rules = {
+  "2_5": (run_doc) => run_doc.target.data[0].progress === 100,
+  "1_3": (run_doc) => {
+    const date = run_doc.target.data[0].exp_end_date;
+    return date && new Date(date) < new Date();
+  }
+};
+
+// Side effects orchestrate other adapters
+CW.Adapter.sideEffects = {
+  "2_5": async (run_doc) => {
+    await CW.Adapter.email.send(run_doc);
+  },
+  "0_1": async (run_doc) => {
+    await CW.Adapter.audit.log(run_doc);
+  },
+  "1_2": async (run_doc) => {
+    await CW.Adapter.notify.reviewer(run_doc);
+  }
+};
+
+//--------------
+
+async function applyTransition(from, to, run_doc) {
+  const key = `${from}_${to}`;
+  
+  // Check rule
+  const rule = CW.Adapter.rules?.[key];
+  if (rule && !await rule(run_doc)) {
+    throw new Error(`Transition ${key} not allowed`);
+  }
+  
+  const doc = run_doc.target.data[0];
+  
+  // Update state
+  doc[fsm.fieldname] = to;
+  doc._state = doc._state || {};
+  doc._state.transition = key;           // "2_5"
+  doc._state.from = from;                // 2
+  doc._state.to = to;                    // 5
+  doc._state.label = `${fsm.options[from]} -> ${fsm.options[to]}`;  // "Pending Review -> Completed"
+  doc._state.timestamp = new Date().toISOString();
+  
+  // Execute side effect
+  const effect = CW.Adapter.sideEffects?.[key];
+  if (effect) await effect(run_doc);
+  
+  return run_doc;
+}
+
+
+//Version 3
+
+const fsm = {
+  fieldname: "status",
+  values: [0, 1, 2, 3, 4, 5, 6],
+  options: ["Open", "Working", "Pending Review", "Overdue", "Template", "Completed", "Cancelled"],
+  transitions: {
+    0: [1, 6],
+    1: [2, 3, 6],
+    2: [1, 5, 6],
+    3: [1, 6],
+    5: [0],
+    6: [0]
+  },
+  rules: ["2_5", "1_3"],  // just list which transitions have rules
+  sideEffects: ["2_5", "0_1", "1_2"]  // which have side effects
+};
+
+// Adapters named by transition key
+CW.Adapter.rules = {
+  "2_5": (run_doc) => run_doc.target.data[0].progress === 100,
+  "1_3": (run_doc) => {
+    const date = run_doc.target.data[0].exp_end_date;
+    return date && new Date(date) < new Date();
+  }
+};
+
+CW.Adapter.sideEffects = {
+  "2_5": (run_doc) => { /* email */ },
+  "0_1": (run_doc) => { /* audit */ },
+  "1_2": (run_doc) => { /* notify */ }
+};
+
+// Execute
+const rule = CW.Adapter.rules[key];
+if (rule && !await rule(run_doc)) return false;
+
+const effect = CW.Adapter.sideEffects[key];
+if (effect) await effect(run_doc);
+
+//Questions 
+
+  sideEffects: {
+    "2_5": (doc) => sendCompletionEmail(doc),  //<-another adapter CW.Adapter.email.send(doc,templateName)
+    "0_1": (doc) => logTransition(doc, "Open -> Working"),  //<- another
+    "1_2": (doc) => notifyReviewer(doc) //<-another
+    // add more as needed
+  }
+
+// Changes notation, added sideeffects 
+
+// --- FSM Definition ---
+const fsm = {
+  fieldname: "status",
+  values: [0, 1, 2, 3, 4, 5, 6],
+  options: ["Open", "Working", "Pending Review", "Overdue", "Template", "Completed", "Cancelled"],
+  transitions: {
+    0: [1, 6],           // Open -> Working or Cancelled
+    1: [2, 3, 6],        // Working -> Pending Review, Overdue, or Cancelled
+    2: [1, 5, 6],        // Pending Review -> Working, Completed, or Cancelled
+    3: [1, 6],           // Overdue -> Working or Cancelled
+    5: [0],              // Completed -> Reopen
+    6: [0]               // Cancelled -> Reopen
+  },
+  rules: {
+    "2_5": (doc) => doc.progress === 100, // Can complete only if 100%
+    "1_3": (doc) => doc.exp_end_date && new Date(doc.exp_end_date) < new Date() // Auto overdue
+  },
+  sideEffects: {
+    "2_5": (doc) => sendCompletionEmail(doc),
+    "0_1": (doc) => logTransition(doc, "Open -> Working"),
+    "1_2": (doc) => notifyReviewer(doc)
+    // add more as needed
+  }
+};
+
+// --- Helper Functions ---
+function canTransition(doc, to) {
+  const from = doc.status;
+
+  // Check valid transition
+  if (!fsm.transitions[from]?.includes(to)) return false;
+
+  // Check rule
+  const rule = fsm.rules[`${from}_${to}`];
+  if (rule && !rule(doc)) return false;
+
+  return true;
+}
+
+function executeTransition(doc, to) {
+  if (!canTransition(doc, to)) {
+    throw new Error(`Invalid transition: ${fsm.options[doc.status]} -> ${fsm.options[to]}`);
+  }
+
+  const from = doc.status;
+  doc.status = to;
+
+  // Run side effect if exists
+  const effect = fsm.sideEffects[`${from}_${to}`];
+  if (effect) effect(doc);
+
+  return doc;
+}
+
+// --- Example Usage ---
+let doc = { status: 2, progress: 100 };
+executeTransition(doc, 5); // triggers 2_5 rule and sideEffect
+
+
+
+
+// next version 2.0
+// 1. make all fields 1 level, provide execution_level: _state, _beforesave (now _state only) 
+
+
+      "execution": "_state",
+      "fieldname": "status",
+      "values": [0, 1, 2, 3, 4, 5, 6],
+      "options": ["Open", "Working", "Pending Review", "Overdue", "Template", "Completed", "Cancelled"],
+      "transitions": {
+        0: [1, 6],           // Open -> Working or Cancelled
+        1: [2, 3, 6],        // Working -> Pending Review, Overdue, or Cancelled
+        2: [1, 5, 6],        // Pending Review -> Working, Completed, or Cancelled
+        3: [1, 6],           // Overdue -> Working or Cancelled
+        5: [0],              // Completed -> Reopen
+        6: [0]               // Cancelled -> Reopen
+      },
+      "rules": {
+        "2->5": "eval: doc.progress === 100",  // Can complete only if 100%
+        "1->3": "eval: doc.exp_end_date && new Date(doc.exp_end_date) < now"  // Auto overdue
+      }
+
+    
+      "execution": "_state",
+      "fieldname": "completed_on",
+      "type": "timestamp_at",
+      "write_once": true,
+      "rules": {
+        "null->datetime": "eval: doc._states[1][0] === 5"  // Set when status becomes Completed
+      }
+
+    
+      "execution": "_state",
+      "fieldname": "act_start_date",
+      "type": "timestamp_at",
+      "write_once": false,
+      "rules": {
+        "null->datetime": "eval: doc._states[1][0] === 1"  // Set when status becomes Working
+      }
+    }]
+  },
+  
+// "normal fileds"
+    "fieldname":"is_overdue",
+     "depends_on": "eval: doc.exp_end_date && new Date(doc.exp_end_date) < now && doc._states[1][0] !== 5"
+  
+    "fieldname":"time_remaining":
+          "depends_on": "eval: doc.exp_end_date ? Math.max(0, (new Date(doc.exp_end_date) - now) / 3600000) : null"
+
+
+
+
+
+
+
+
+
+
+
+
+//newer version 
+
+{
+  "doctype": "Task",
+  "autoname": "TASK-.YYYY.-.#####",
+  
+  "fields": [
+    {"fieldname": "subject", "fieldtype": "Data", "reqd": 1},
+    {"fieldname": "project", "fieldtype": "Link", "options": "Project"},
+    {"fieldname": "priority", "fieldtype": "Select", "options": "Low\nMedium\nHigh\nUrgent"},
+    {"fieldname": "description", "fieldtype": "Text Editor"},
+    {"fieldname": "exp_start_date", "fieldtype": "Datetime"},
+    {"fieldname": "exp_end_date", "fieldtype": "Datetime"},
+    {"fieldname": "expected_time", "fieldtype": "Float"},
+    {"fieldname": "progress", "fieldtype": "Percent"},
+    // ... other fields
+  ],
+  
+  "_state": {
+    1: [{
+      "fieldname": "status",
+      "values": [0, 1, 2, 3, 4, 5, 6],
+      "options": ["Open", "Working", "Pending Review", "Overdue", "Template", "Completed", "Cancelled"],
+      "transitions": {
+        0: [1, 6],           // Open -> Working or Cancelled
+        1: [2, 3, 6],        // Working -> Pending Review, Overdue, or Cancelled
+        2: [1, 5, 6],        // Pending Review -> Working, Completed, or Cancelled
+        3: [1, 6],           // Overdue -> Working or Cancelled
+        5: [0],              // Completed -> Reopen
+        6: [0]               // Cancelled -> Reopen
+      },
+      "rules": {
+        "2->5": "eval: doc.progress === 100",  // Can complete only if 100%
+        "1->3": "eval: doc.exp_end_date && new Date(doc.exp_end_date) < now"  // Auto overdue
+      }
+    }],
+    
+    2: [{
+      "fieldname": "completed_on",
+      "type": "timestamp_at",
+      "write_once": true,
+      "rules": {
+        "null->datetime": "eval: doc._states[1][0] === 5"  // Set when status becomes Completed
+      }
+    }],
+    
+    3: [{
+      "fieldname": "act_start_date",
+      "type": "timestamp_at",
+      "write_once": false,
+      "rules": {
+        "null->datetime": "eval: doc._states[1][0] === 1"  // Set when status becomes Working
+      }
+    }]
+  },
+  
+  "computed_fields": {
+    "is_overdue": {
+      "formula": "eval: doc.exp_end_date && new Date(doc.exp_end_date) < now && doc._states[1][0] !== 5"
+    },
+    "time_remaining": {
+      "formula": "eval: doc.exp_end_date ? Math.max(0, (new Date(doc.exp_end_date) - now) / 3600000) : null"
+    }
+  },
+  
+  "helpers": {
+    "isFuture": "(v, now) => v && new Date(v) > now"
+  }
+}
+
+
+//new version  3(stored in schema)
+
+Final V3 + Inference (10/10) - Complete Example:
+Schema:
+javascript{
+  "doctype": "User",
+  
+  "_states": {
+    1: [{
+      "fieldname": "email_verified_at",
+      // type auto-inferred as "timestamp_at" from _at suffix
+      "write_once": true,
+      "rules": {
+        "null->datetime": "eval: !h.isActive(doc._states[2][0], now) && !h.isActive(doc._states[3][0], now)"
+      }
+    }],
+    
+    2: [{
+      "fieldname": "banned_until",
+      // type auto-inferred as "timestamp_until" from _until suffix
+      "write_permission": "eval: ctx.user?.roles?.includes('Admin')"
+    }],
+    
+    3: [{
+      "fieldname": "locked_until",
+      // type auto-inferred as "timestamp_until"
+      "auto_managed": true
+    }],
+    
+    4: [{
+      "fieldname": "trial_until",
+      // type auto-inferred as "timestamp_until"
+    }],
+    
+    5: [{
+      "fieldname": "onboarding_step",
+      "values": [0, 1, 2, 3],  // type auto-inferred as "state_machine" from values
+      "options": ["profile", "verification", "preferences", "complete"],
+      "transitions": {
+        0: [1],
+        1: [2],
+        2: [3]
+      },
+      "rules": {
+        "1->2": "eval: doc._states[1][0] !== null"  // email must be verified
+      }
+    }],
+    
+    6: [{
+      "fieldname": "phone_verified_at",
+      // type auto-inferred as "timestamp_at"
+      "write_once": true
+    }],
+    
+    7: [{
+      "fieldname": "premium_until",
+      // type auto-inferred as "timestamp_until"
+    }]
+  },
+  
+  "helpers": {
+    "isActive": "(v, now) => v && new Date(v) > now",
+    "isPast": "(v, now) => !v || new Date(v) <= now",
+    "isFuture": "(v, now) => v && new Date(v) > now"
+  }
+}
+FSM Engine with Type Inference:
+javascriptclass FSM {
+  constructor(schema) {
+    this.schema = schema;
+    this.s = schema._states || {};
+    this.h = this.compileHelpers(schema.helpers || {});
+  }
+  
+  // Infer field type from naming convention or explicit declaration
+  inferType(field) {
+    if (field.type) return field.type;
+    if (field.values) return 'state_machine';
+    if (field.fieldname?.endsWith('_at')) return 'timestamp_at';
+    if (field.fieldname?.endsWith('_until')) return 'timestamp_until';
+    return 'unknown';
+  }
+  
+  // Get current value
+  get(doc, dim, idx) {
+    return doc._states?.[dim]?.[idx] ?? null;
+  }
+  
+  // Set value with type-appropriate validation
+  set(doc, dim, idx, val, ctx = {}) {
+    if (!doc._states) doc._states = {};
+    if (!doc._states[dim]) doc._states[dim] = [];
+    
+    const field = this.s[dim]?.[idx];
+    if (!field) throw new Error(`Field ${dim}.${idx} not defined`);
+    
+    const type = this.inferType(field);
+    const from = doc._states[dim][idx];
+    const now = new Date();
+    
+    // Handle state_machine type
+    if (type === 'state_machine') {
+      return this.transition(doc, dim, idx, val, ctx);
+    }
+    
+    // Handle timestamp_at type
+    if (type === 'timestamp_at') {
+      // Write-once check
+      if (field.write_once && from !== null && val !== from) {
+        throw new Error(`${field.fieldname} is write-once, already set to ${from}`);
+      }
+      
+      // Validate null->datetime transition
+      if (from === null && val !== null) {
+        const rule = field.rules?.['null->datetime'];
+        if (rule && !this.evalRule(rule, doc, now, ctx)) {
+          throw new Error(`Cannot set ${field.fieldname}: rule failed`);
+        }
+      }
+      
+      // Validate datetime format
+      if (val !== null && isNaN(new Date(val))) {
+        throw new Error(`${field.fieldname} requires valid datetime, got ${val}`);
+      }
+    }
+    
+    // Handle timestamp_until type
+    if (type === 'timestamp_until') {
+      // Check write permission
+      if (field.write_permission && !this.evalRule(field.write_permission, doc, now, ctx)) {
+        throw new Error(`No permission to set ${field.fieldname}`);
+      }
+      
+      // Validate datetime format (if not null)
+      if (val !== null && isNaN(new Date(val))) {
+        throw new Error(`${field.fieldname} requires valid datetime, got ${val}`);
+      }
+    }
+    
+    doc._states[dim][idx] = val;
+    return doc;
+  }
+  
+  // State machine transition
+  transition(doc, dim, idx, toVal, ctx = {}) {
+    const field = this.s[dim]?.[idx];
+    if (!field) throw new Error(`Field ${dim}.${idx} not defined`);
+    
+    const type = this.inferType(field);
+    if (type !== 'state_machine') {
+      throw new Error(`Cannot transition ${field.fieldname}: not a state machine`);
+    }
+    
+    if (!doc._states) doc._states = {};
+    if (!doc._states[dim]) doc._states[dim] = [];
+    
+    const fromVal = doc._states[dim][idx] ?? 0;
+    const now = new Date();
+    
+    // Check allowed transitions
+    if (field.transitions) {
+      const allowed = field.transitions[fromVal];
+      if (!allowed || !allowed.includes(toVal)) {
+        throw new Error(
+          `Transition ${fromVal}->${toVal} not allowed for ${field.fieldname}`
+        );
+      }
+    }
+    
+    // Check transition rule
+    const ruleKey = `${fromVal}->${toVal}`;
+    if (field.rules?.[ruleKey]) {
+      if (!this.evalRule(field.rules[ruleKey], doc, now, ctx)) {
+        throw new Error(
+          `Transition ${ruleKey} rule failed for ${field.fieldname}`
+        );
+      }
+    }
+    
+    // Check value is in allowed values
+    if (field.values && !field.values.includes(toVal)) {
+      throw new Error(
+        `Value ${toVal} not in allowed values for ${field.fieldname}`
+      );
+    }
+    
+    doc._states[dim][idx] = toVal;
+    return doc;
+  }
+  
+  // Get computed switch state for timestamp_until (0=inactive, 1=active)
+  getSwitch(doc, dim, idx, now = new Date()) {
+    const field = this.s[dim]?.[idx];
+    const type = this.inferType(field);
+    
+    if (type !== 'timestamp_until') {
+      throw new Error(`${field.fieldname} is not timestamp_until`);
+    }
+    
+    const val = this.get(doc, dim, idx);
+    return this.h.isActive(val, now) ? 1 : 0;
+  }
+  
+  // Check if timestamp_at is achieved
+  isAchieved(doc, dim, idx) {
+    const field = this.s[dim]?.[idx];
+    const type = this.inferType(field);
+    
+    if (type !== 'timestamp_at') {
+      throw new Error(`${field.fieldname} is not timestamp_at`);
+    }
+    
+    return this.get(doc, dim, idx) !== null;
+  }
+  
+  // Get semantic field info
+  getFieldInfo(dim, idx) {
+    const field = this.s[dim]?.[idx];
+    if (!field) return null;
+    
+    return {
+      fieldname: field.fieldname,
+      type: this.inferType(field),
+      options: field.options,
+      values: field.values
+    };
+  }
+  
+  // Evaluate rule
+  evalRule(rule, doc, now, ctx) {
+    try {
+      const expr = rule.replace(/^eval:\s*/, '');
+      const h = this.h;
+      const fn = new Function('doc', 'now', 'h', 'ctx', `return ${expr}`);
+      return fn(doc, now, h, ctx);
+    } catch (e) {
+      console.error('Rule evaluation error:', e);
+      return false;
+    }
+  }
+  
+  // Compile helpers
+  compileHelpers(helpers) {
+    const compiled = {};
+    for (let [name, fn] of Object.entries(helpers)) {
+      compiled[name] = new Function('return ' + fn)();
+    }
+    return compiled;
+  }
+  
+  // Initialize document states
+  init(doc) {
+    if (!doc._states) doc._states = {};
+    
+    for (let [dim, fields] of Object.entries(this.s)) {
+      const dimNum = parseInt(dim);
+      if (!doc._states[dimNum]) {
+        doc._states[dimNum] = new Array(fields.length).fill(null);
+        
+        // Initialize state_machine fields to 0 instead of null
+        for (let i = 0; i < fields.length; i++) {
+          if (this.inferType(fields[i]) === 'state_machine') {
+            doc._states[dimNum][i] = 0;
+          }
+        }
+      }
+    }
+    
+    return doc;
+  }
+}
+Usage Examples:
+javascriptconst schema = { /* schema from above */ };
+const fsm = new FSM(schema);
+
+// Create new user
+const user = {
+  email: "user@example.com",
+  phone: "+1234567890"
+};
+
+// Initialize states
+fsm.init(user);
+console.log(user._states);
+/*
+{
+  1: [null],  // email_verified_at
+  2: [null],  // banned_until
+  3: [null],  // locked_until
+  4: [null],  // trial_until
+  5: [0],     // onboarding_step (state machine starts at 0)
+  6: [null],  // phone_verified_at
+  7: [null]   // premium_until
+}
+*/
+
+// ============================================
+// SCENARIO 1: User onboarding flow
+// ============================================
+
+// Start onboarding
+fsm.transition(user, 5, 0, 1);  // profile -> verification
+console.log(user._states[5][0]);  // 1
+
+// Try to advance (fails - email not verified)
+try {
+  fsm.transition(user, 5, 0, 2);
+} catch (e) {
+  console.error(e.message);  // "Transition 1->2 rule failed"
+}
+
+// Verify email
+fsm.set(user, 1, 0, new Date().toISOString());
+console.log(fsm.isAchieved(user, 1, 0));  // true
+
+// Now can advance onboarding
+fsm.transition(user, 5, 0, 2);  // verification -> preferences
+fsm.transition(user, 5, 0, 3);  // preferences -> complete
+
+// ============================================
+// SCENARIO 2: Admin bans user
+// ============================================
+
+const adminCtx = {user: {roles: ['Admin']}};
+
+// Admin sets ban
+fsm.set(user, 2, 0, '2025-12-31T23:59:59Z', adminCtx);
+console.log(fsm.getSwitch(user, 2, 0));  // 1 (banned)
+
+// Try to verify email again (fails - banned)
+try {
+  fsm.set(user, 1, 0, new Date().toISOString());
+} catch (e) {
+  console.error(e.message);  // "email_verified_at is write-once"
+}
+
+// Non-admin tries to unban (fails)
+const userCtx = {user: {roles: ['User']}};
+try {
+  fsm.set(user, 2, 0, null, userCtx);
+} catch (e) {
+  console.error(e.message);  // "No permission to set banned_until"
+}
+
+// Admin unbans
+fsm.set(user, 2, 0, null, adminCtx);
+console.log(fsm.getSwitch(user, 2, 0));  // 0 (not banned)
+
+// ============================================
+// SCENARIO 3: Rate limiting (auto-managed)
+// ============================================
+
+// System locks user after failed login
+const lockUntil = new Date(Date.now() + 15 * 60 * 1000);  // 15 min
+fsm.set(user, 3, 0, lockUntil.toISOString());
+console.log(fsm.getSwitch(user, 3, 0));  // 1 (locked)
+
+// Check if still locked in 20 minutes
+const future = new Date(Date.now() + 20 * 60 * 1000);
+console.log(fsm.getSwitch(user, 3, 0, future));  // 0 (unlocked)
+
+// ============================================
+// SCENARIO 4: Trial period
+// ============================================
+
+// Start trial (30 days)
+const trialEnd = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+fsm.set(user, 4, 0, trialEnd.toISOString());
+console.log(fsm.getSwitch(user, 4, 0));  // 1 (trial active)
+
+// Check after 31 days
+const afterTrial = new Date(Date.now() + 31 * 24 * 60 * 60 * 1000);
+console.log(fsm.getSwitch(user, 4, 0, afterTrial));  // 0 (trial expired)
+
+// ============================================
+// SCENARIO 5: Premium subscription
+// ============================================
+
+// User subscribes to premium
+const premiumEnd = new Date('2026-02-10T00:00:00Z');
+fsm.set(user, 7, 0, premiumEnd.toISOString());
+console.log(fsm.getSwitch(user, 7, 0));  // 1 (premium active)
+
+// ============================================
+// SCENARIO 6: Get field info
+// ============================================
+
+console.log(fsm.getFieldInfo(5, 0));
+/*
+{
+  fieldname: "onboarding_step",
+  type: "state_machine",
+  options: ["profile", "verification", "preferences", "complete"],
+  values: [0, 1, 2, 3]
+}
+*/
+
+console.log(fsm.getFieldInfo(2, 0));
+/*
+{
+  fieldname: "banned_until",
+  type: "timestamp_until",
+  options: undefined,
+  values: undefined
+}
+*/
+
+// ============================================
+// Final state
+// ============================================
+
+console.log(user._states);
+/*
+{
+  1: ['2025-02-10T10:30:00.000Z'],  // email verified
+  2: [null],                         // not banned
+  3: ['2025-02-10T10:45:00.000Z'],  // locked for 15 min
+  4: ['2025-03-12T10:30:00.000Z'],  // trial until March 12
+  5: [3],                            // onboarding complete
+  6: [null],                         // phone not verified
+  7: ['2026-02-10T00:00:00.000Z']   // premium until Feb 2026
+}
+*/
+Key Features:
+✅ Type inference from naming convention (_at, _until) or values array
+✅ Three types handled: state_machine, timestamp_at, timestamp_until
+✅ Write-once protection for achievements
+✅ Permission checks for sensitive fields
+✅ Auto-expiring timestamps
+✅ Transition validation for state machines
+✅ Computed switches for timestamp_until
+✅ Minimal schema - type is inferred when possible
+✅ Type-safe - different behaviors enforced by type
+
+
+
+//initial version 
 core_statemachine = {"config":
  {"doctype": "State Machine",
   "name": "Document_FSM",

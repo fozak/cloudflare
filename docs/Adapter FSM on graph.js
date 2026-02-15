@@ -1,3 +1,7 @@
+
+
+
+
 const fsmAdapter = {
   doctype: "Adapter",
   name: "fsm-controller",
