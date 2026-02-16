@@ -1,3 +1,86 @@
+//last proposal
+
+async function CW.run(operation, doctype, input) {
+  
+  const schema = CW.Schema[doctype];
+  
+  // ============================================================
+  // PHASE 1: INPUT VALIDATION (guard - validate user input only)
+  // ============================================================
+  
+  // Build minimal run_doc with just user input
+  const run_doc = {
+    operation: operation,
+    schema: schema,
+    target: { 
+      doctype: doctype, 
+      data: [{ ...input }]  // ONLY user input
+    }
+  };
+  
+  await CW.inputValidated(run_doc);
+  // - iterate only through input fields
+  // - validate types, formats, required, unique
+  // - NO system fields, NO defaults yet
+  
+  // ============================================================
+  // PHASE 1.5: APPLY SYSTEM SCHEMA (generate system fields)
+  // ============================================================
+  
+  const doc = run_doc.target.data[0];
+  
+  // System fields
+  doc.id = generateId();
+  doc.owner = null;
+  doc.creation = new Date().toISOString();
+  doc.modified = new Date().toISOString();
+  doc.docstatus = 0;
+  doc._allowed = [];
+  doc._allowed_read = ["role_user"];
+  
+  // Schema defaults
+  for (const field of schema.fields) {
+    if (field.default && !(field.fieldname in doc)) {
+      doc[field.fieldname] = field.default;
+    }
+  }
+  
+  // Initialize FSM
+  doc._state = {};
+  for (const fsmKey in schema._state) {
+    doc._state[fsmKey] = {
+      value: schema._state[fsmKey].values[0],
+      transition: null,
+      timestamp: new Date().toISOString()
+    };
+  }
+  
+  // ============================================================
+  // PHASE 2: TRANSITION DATA CALCULATION (FSM handlers mutate doc)
+  // ============================================================
+  
+  await CW.transitionDataCalculated(run_doc);
+  // - triggers initial FSM transitions
+  // - handlers mutate doc (hash password, gen tokenKey, etc.)
+  
+  // ============================================================
+  // PHASE 3: SIDE EFFECTS EXECUTION
+  // ============================================================
+  
+  await CW.sideEffectsExecuted(run_doc);
+  // - sign JWT → run_doc.jwt
+  // - send emails
+  // - audit logs
+  
+  // ============================================================
+  // RETURN mutated run_doc
+  // ============================================================
+  
+  return run_doc;
+}
+
+
+
 
 // discussion
 
