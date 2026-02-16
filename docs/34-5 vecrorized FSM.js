@@ -1,7 +1,546 @@
+
+// discussion
+
+async function CW.run(operation, doctype, input) {
+  
+  const schema = CW.Schema[doctype];
+  
+  // ============================================================
+  // PHASE 1: INPUT VALIDATION (guard - validate user input only)
+  // ============================================================
+  
+  // Build minimal run_doc with just user input
+  const run_doc = {
+    operation: operation,
+    schema: schema,
+    target: { 
+      doctype: doctype, 
+      data: [{ ...input }]  // ONLY user input
+    }
+  };
+  
+  await CW.inputValidated(run_doc);
+  // - iterate only through input fields
+  // - validate types, formats, required, unique
+  // - NO system fields, NO defaults yet
+  
+  // ============================================================
+  // PHASE 1.5: APPLY SYSTEM SCHEMA (generate system fields)
+  // ============================================================
+  
+  const doc = run_doc.target.data[0];
+  
+  // System fields
+  doc.id = generateId();
+  doc.owner = null;
+  doc.creation = new Date().toISOString();
+  doc.modified = new Date().toISOString();
+  doc.docstatus = 0;
+  doc._allowed = [];
+  doc._allowed_read = ["role_user"];
+  
+  // Schema defaults
+  for (const field of schema.fields) {
+    if (field.default && !(field.fieldname in doc)) {
+      doc[field.fieldname] = field.default;
+    }
+  }
+  
+  // Initialize FSM
+  doc._state = {};
+  for (const fsmKey in schema._state) {
+    doc._state[fsmKey] = {
+      value: schema._state[fsmKey].values[0],
+      transition: null,
+      timestamp: new Date().toISOString()
+    };
+  }
+  
+  // ============================================================
+  // PHASE 2: TRANSITION DATA CALCULATION (FSM handlers mutate doc)
+  // ============================================================
+  
+  await CW.transitionDataCalculated(run_doc);
+  // - triggers initial FSM transitions
+  // - handlers mutate doc (hash password, gen tokenKey, etc.)
+  
+  // ============================================================
+  // PHASE 3: SIDE EFFECTS EXECUTION
+  // ============================================================
+  
+  await CW.sideEffectsExecuted(run_doc);
+  // - sign JWT → run_doc.jwt
+  // - send emails
+  // - audit logs
+  
+  // ============================================================
+  // RETURN mutated run_doc
+  // ============================================================
+  
+  return run_doc;
+}
+
+
+// combined 
+// 1. input coming (create, User, input {email: "test@example.com", password: "test"})
+
+// 2. User.schema request - is this set has all required - Yes
+
+// 3. Is email and password meet criterias
+
+//4. Unique in set, then check - (select, User, query {where email = input.email} ) if null next
+
+//5. generate SYSTEM fields first name, .... owner, _allowed (as they will be part of JWT)
+
+//6. Resolve other user
+
+//7. Go into FSM? 
+
+"_state": {
+  "1": {
+    "name": "_auth",
+    "values": [0, 1, 2, 3],
+    "options": ["Invited/Unverified", "Active/Unverified", "Active/Verified", "Locked"],
+    
+    "0_1": {
+      "label": "Activate User",
+      "handler": "async (run_doc) => {
+        const u = run_doc.target.data[0];
+        
+        // Auth state
+        u.enabled = true;
+        u.invited = false;
+        
+        // Password (if not already hashed during creation)
+        if (u._temp_password) {
+          u.password = await CW.Adapter.auth.hashPassword(u._temp_password);
+          delete u._temp_password;
+        }
+        
+        // JWT token key (per-user secret)
+        u.tokenKey = CW.Adapter.auth.generateTokenKey();
+        
+        // Session setup
+        u.last_login = new Date().toISOString();
+      }",
+      
+      "sideEffects": "async (run_doc) => {
+        const u = run_doc.target.data[0];
+        
+        // Issue JWT
+        const jwt = await CW.Adapter.auth.issueJWT(u);
+        run_doc.jwt = jwt;
+        
+        // Send verification email
+        await CW.Adapter.email.sendVerification(run_doc);
+        
+        // Audit log
+        await CW.Adapter.audit.log(run_doc, 'user_activated');
+      }"
+    }
+  }
+}
+
+//
+
+"_state": {
+  "2": {
+    "name": "_email_verification",
+    "values": [0, 1, 2, 3],
+    "options": ["Pending", "Verified", "Bounced", "Changed"],
+
+    "0_1": {
+      "label": "Mark Verified",
+      "handler": "async (run_doc) => { 
+          // prepare data for next state
+          u.password = await hash(u.password);     //<-how to reference Adapter functtion 
+                                                   // correctly - suggesstion by Adapter name like auth.hash()
+          u.tokenKey = generateTokenKey();
+          u.enabled = true;
+      }",
+      "sideEffects": "async (run_doc) => {
+          // post-transition effects
+          sendVerificationEmail(u.email);
+          u.jwt = signJWT(...);
+      }"
+    }
+  }
+}
+
+
+
+//body.json arrives
+
+const run_doc = await CW.run('create', 'User', {
+  email,      
+  password, // process_data
+});   
+// - check doctype.Schema for User and FSM for User doctype 
+// if FSM has related transition, use it, envoke funcitons from referenced Adapter like auth
+
+// so operation + doctype -> FSM + Adapter 
+
+
+// Immediately trigger technical FSM transition
+await CW.transition(run_doc, '1', '0_1'); // process_data → Pending
+
+return {
+  token: run_doc.jwt,
+  user: { id: run_doc.target.data[0].id, email }
+};
+
+
+
+
+"_state": {
+  "2": {
+    "name": "_email_verification",
+    "values": [0, 1, 2, 3],
+    "options": ["Pending", "Verified", "Bounced", "Changed"],
+    
+    "0_1": {
+      "label": "Mark Verified",
+      "handler": "async (run_doc) => { ... }",
+      "sideEffects": "async (run_doc) => { ... }"
+    }
+  }
+}
+
+
+"_state": {
+  "2": {
+    "name": "_email_verification",
+    "values": [0, 1, 2, 3],
+    "options": ["Pending", "Verified", "Bounced", "Changed"],
+    
+
+      "0_1": {
+        "label": "Mark Verified",
+        "transition": "async (run_doc) => { run_doc.target.data[0].verified = true; }",
+        "sideEffects": "async (run_doc) => { await CW.Adapter[2].log(run_doc); }"
+      },
+
+
+//version 5.1 some additions
+
+fsm = {
+  "_schema_doctype": "User",
+  
+  "_state": {
+   "1": {
+  "name": "_auth",
+  "fieldname": "_auth",
+  "values": [0, 1, 2, 3, 4],
+  "options": ["Invited", "Active", "Locked", "Password Reset Pending", "Disabled"],
+  
+  "transitions": {
+    "0": [1, 4],      // Invited → Active (verify) | Disabled (cancel)
+    "1": [2, 3, 4],   // Active → Locked (security) | Reset (force pw change) | Disabled (deactivate)
+    "2": [1, 4],      // Locked → Active (unlock) | Disabled (permanent ban)
+    "3": [1, 4],      // Reset → Active (pw changed) | Disabled (cancel account)
+    "4": [0]          // Disabled → Invited (re-invite, not direct Active)
+  },
+  
+  "labels": {
+    "0_1": "Activate User",
+    "0_4": "Cancel Invitation",
+    "1_2": "Lock Account",
+    "1_3": "Require Password Reset",
+    "1_4": "Disable User",
+    "2_1": "Unlock Account",
+    "2_4": "Permanently Disable",
+    "3_1": "Complete Reset & Activate",
+    "3_4": "Cancel Account",
+    "4_0": "Re-invite User"
+  },
+  
+  "rules": {
+    "0_1": "(run_doc) => run_doc.target.data[0].verified === true",
+    "3_1": "(run_doc) => !!run_doc.target.data[0].password_changed_at"
+  },
+  
+  "sideEffects": {
+    "0_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.enabled = true; u.invited = false; await CW.Adapter.audit.log(run_doc); await CW.Adapter.email.send(run_doc); }",
+    "1_2": "async (run_doc) => { const u = run_doc.target.data[0]; u.locked = true; u.enabled = false; await CW.Adapter.security.flag(run_doc); await CW.Adapter.email.send(run_doc); }",
+    "1_3": "async (run_doc) => { const u = run_doc.target.data[0]; u.requiredActions = ['PASSWORD_RESET']; await CW.Adapter.email.send(run_doc); }",
+    "2_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.locked = false; u.enabled = true; await CW.Adapter.audit.log(run_doc); }",
+    "3_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.requiredActions = []; u.enabled = true; await CW.Adapter.audit.log(run_doc); }",
+    "4_0": "async (run_doc) => { const u = run_doc.target.data[0]; u.enabled = false; u.invited = true; await CW.Adapter.email.sendInvite(run_doc); }"
+  }
+},
+    
+"2": {
+  "name": "_email_verification",
+  "fieldname": "_email_verification",
+  "values": [0, 1, 2, 3],
+  "options": ["Pending", "Verified", "Bounced", "Changed"],
+  
+  "transitions": {
+    "0": [1, 2],      // Pending → Verified (user clicks link) | Bounced (delivery failed)
+    "1": [3],         // Verified → Changed (user updates email)
+    "2": [0],         // Bounced → Pending (retry/new email)
+    "3": [0]          // Changed → Pending (verify new email)
+  },
+  
+  "labels": {
+    "0_1": "Mark Verified",
+    "0_2": "Mark Bounced",
+    "1_3": "Email Changed",
+    "2_0": "Retry Verification",
+    "3_0": "Send New Verification"
+  },
+  
+  "rules": {},
+  
+  "sideEffects": {
+    "0_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.verified = true; await CW.Adapter.audit.log(run_doc); }",
+    "0_2": "async (run_doc) => { const u = run_doc.target.data[0]; u.verified = false; await CW.Adapter.email.logBounce(run_doc); }",
+    "1_3": "async (run_doc) => { const u = run_doc.target.data[0]; u.verified = false; await CW.Adapter.audit.log(run_doc); }",
+    "2_0": "async (run_doc) => { await CW.Adapter.email.sendVerification(run_doc); }",
+    "3_0": "async (run_doc) => { await CW.Adapter.email.sendVerification(run_doc); }"
+  }
+}
+  },
+
+  "fields": [
+    {
+      "fieldname": "_state",
+      "fieldtype": "Code",
+      "options": "JSON",
+      "label": "State",
+      "description": "All FSM states"
+    },
+    {
+      "fieldname": "email",
+      "fieldtype": "Data",
+      "label": "Email",
+      "reqd": 1
+    },
+    {
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enabled",
+      "default": "1"
+    },
+    {
+      "fieldname": "verified",
+      "fieldtype": "Check",
+      "label": "Email Verified",
+      "default": "0"
+    },
+    {
+      "fieldname": "locked",
+      "fieldtype": "Check",
+      "label": "Locked",
+      "default": "0"
+    }
+  ]
+}
+
+// Document instance:
+{
+  "email": "user@example.com",
+  "enabled": true,
+  "verified": false,
+  "locked": false,
+  "_state": {
+    "1": {
+      "value": 0,
+      "transition": null,
+      "timestamp": "2025-02-14T10:00:00Z",
+      "actions": [
+        { "key": "0_1", "label": "Lock Account" },
+        { "key": "0_2", "label": "Require Password Reset" },
+        { "key": "0_3", "label": "Disable User" }
+      ]
+    },
+    "2": {
+      "value": 0,
+      "transition": null,
+      "timestamp": "2025-02-14T10:00:00Z",
+      "actions": [
+        { "key": "0_1", "label": "Mark Verified" },
+        { "key": "0_2", "label": "Mark Bounced" }
+      ]
+    }
+  }
+}
+
+
+
+
+//VERSION 5 not implemented 
+
+
+{
+  "_schema_doctype": "User",
+  
+  "_state": {
+    "1": {
+      "name": "_auth",
+      "fieldname": "_auth",
+      "values": [0, 1, 2, 3],
+      "options": ["Active", "Locked", "Password Reset Pending", "Disabled"],
+      "transitions": {
+        "0": [1, 2, 3],
+        "1": [0, 3],
+        "2": [0, 1, 3],
+        "3": [0]
+      },
+      "labels": {
+        "0_1": "Lock Account",
+        "0_2": "Require Password Reset",
+        "0_3": "Disable User",
+        "1_0": "Unlock Account",
+        "1_3": "Disable User",
+        "2_0": "Activate After Reset",
+        "2_1": "Lock Account",
+        "2_3": "Disable User",
+        "3_0": "Re-enable User"
+      },
+      "rules": {
+        "0_1": "(run_doc) => run_doc.target.data[0].enabled === true",
+        "2_0": "(run_doc) => !!run_doc.target.data[0].password_changed_at"
+      },
+      "sideEffects": {
+        "0_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.locked = true; u.enabled = false; await CW.Adapter.email.send(run_doc); }",
+        "0_2": "async (run_doc) => { const u = run_doc.target.data[0]; u.requiredActions = ['PASSWORD_RESET']; await CW.Adapter.email.send(run_doc); }",
+        "1_0": "async (run_doc) => { const u = run_doc.target.data[0]; u.locked = false; u.enabled = true; await CW.Adapter.audit.log(run_doc); }",
+        "2_0": "async (run_doc) => { const u = run_doc.target.data[0]; u.requiredActions = []; u.enabled = true; await CW.Adapter.audit.log(run_doc); }"
+      }
+    },
+    
+    "2": {
+      "name": "_email_verification",
+      "fieldname": "_email_verification",
+      "values": [0, 1, 2],
+      "options": ["Pending", "Verified", "Bounced"],
+      "transitions": {
+        "0": [1, 2],
+        "1": [],
+        "2": [0]
+      },
+      "labels": {
+        "0_1": "Mark Verified",
+        "0_2": "Mark Bounced",
+        "2_0": "Resend Verification Email"
+      },
+      "rules": {},
+      "sideEffects": {
+        "0_1": "async (run_doc) => { const u = run_doc.target.data[0]; u.verified = true; u.emailVisibility = true; await CW.Adapter.audit.log(run_doc); }",
+        "0_2": "async (run_doc) => { const u = run_doc.target.data[0]; u.verified = false; await CW.Adapter.email.markBounced(run_doc); }",
+        "2_0": "async (run_doc) => { await CW.Adapter.email.sendVerification(run_doc); }"
+      }
+    }
+  },
+
+  "fields": [
+    {
+      "fieldname": "_state",
+      "fieldtype": "Code",
+      "options": "JSON",
+      "label": "State",
+      "description": "All FSM states"
+    },
+    {
+      "fieldname": "email",
+      "fieldtype": "Data",
+      "label": "Email",
+      "reqd": 1
+    },
+    {
+      "fieldname": "enabled",
+      "fieldtype": "Check",
+      "label": "Enabled",
+      "default": "1"
+    },
+    {
+      "fieldname": "verified",
+      "fieldtype": "Check",
+      "label": "Email Verified",
+      "default": "0"
+    },
+    {
+      "fieldname": "locked",
+      "fieldtype": "Check",
+      "label": "Locked",
+      "default": "0"
+    }
+  ]
+}
+
+// Document instance:
+{
+  "email": "user@example.com",
+  "enabled": true,
+  "verified": false,
+  "locked": false,
+  "_state": {
+    "1": {
+      "value": 0,
+      "transition": null,
+      "timestamp": "2025-02-14T10:00:00Z",
+      "actions": [
+        { "key": "0_1", "label": "Lock Account" },
+        { "key": "0_2", "label": "Require Password Reset" },
+        { "key": "0_3", "label": "Disable User" }
+      ]
+    },
+    "2": {
+      "value": 0,
+      "transition": null,
+      "timestamp": "2025-02-14T10:00:00Z",
+      "actions": [
+        { "key": "0_1", "label": "Mark Verified" },
+        { "key": "0_2", "label": "Mark Bounced" }
+      ]
+    }
+  }
+}
+
+
+
+//VERSION 4
+
+//in USer doc
+  "_state": {
+    "value": 1,                      // current: Active
+    "transition": "0_1",             // last transition
+    "timestamp": "2025-02-14T10:30:00Z",
+    "actions": [
+      { "key": "1_2", "label": "Lock Account" },
+      { "key": "1_3", "label": "Require Password Reset" },
+      { "key": "1_4", "label": "Disable User" }
+    ]
+  }
+
+
+TODO  -----
+"_state": {
+  "value": 1,
+  "transition": "0_1",
+  "timestamp": "2025-02-14T10:30:00Z",
+  "actions": [
+    { 
+      "key": "1_2", 
+      "label": "Lock Account",
+      "disabled": false,           // ← rule validation result
+      "reason": null               // ← why disabled (if rule fails)
+    },
+    { 
+      "key": "1_3", 
+      "label": "Require Password Reset",
+      "disabled": false,
+      "reason": null
+    }
+  ]
+}
+------
+
 "_state" =
 {
  
-    "fieldname": "_state",
+    "name": "_state",
     "values": [0, 1, 2, 3, 4],
     "options": ["Invited", "Active", "Locked", "Password Reset Pending", "Disabled"],
     

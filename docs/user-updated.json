@@ -1,4 +1,51 @@
 {
+  "_state": {
+    "fieldname": "_state",
+    "values": [0, 1, 2, 3, 4],
+    "options": [
+      "Invited",
+      "Active",
+      "Locked",
+      "Password Reset Pending",
+      "Disabled"
+    ],
+
+    "transitions": {
+      "0": [1, 4],
+      "1": [2, 3, 4],
+      "2": [1, 4],
+      "3": [1, 2, 4],
+      "4": [1]
+    },
+
+    "labels": {
+      "0_1": "Activate User",
+      "0_4": "Cancel Invitation",
+      "1_2": "Lock Account",
+      "1_3": "Require Password Reset",
+      "1_4": "Disable User",
+      "2_1": "Unlock Account",
+      "2_4": "Disable User",
+      "3_1": "Complete Reset",
+      "3_2": "Lock Account",
+      "3_4": "Disable User",
+      "4_1": "Re-enable User"
+    },
+
+    "rules": {
+      "0_1": "(run_doc) => run_doc.target.data[0].verified === true",
+      "1_2": "(run_doc) => run_doc.target.data[0].enabled === true",
+      "3_1": "(run_doc) => !!run_doc.target.data[0].password_changed_at"
+    },
+
+    "sideEffects": {
+      "0_1": "async (run_doc) => { ... }",
+      "1_2": "async (run_doc) => { ... }",
+      "1_3": "async (run_doc) => { ... }",
+      "2_1": "async (run_doc) => { ... }",
+      "3_1": "async (run_doc) => { ... }"
+    }
+  },
   "_schema_doctype": "User",
   "actions": [],
   "allow_import": 1,
@@ -119,7 +166,8 @@
     "password",
     "tokenKey",
     "verified",
-    "emailVisibility"
+    "emailVisibility",
+    "_state"
   ],
   "fields": [
     {
@@ -874,35 +922,42 @@
       "print_hide": 1,
       "read_only": 1
     },
-  {
-    "fieldname": "password",
-    "fieldtype": "Password",
-    "label": "Password",
-    "no_copy": 1,
-    "description": "Hashed password for user authentication"
-  },
-  {
-    "fieldname": "tokenKey",
-    "fieldtype": "Data",
-    "label": "Token Key",
-    "hidden": 1,
-    "no_copy": 1,
-    "description": "Per-user secret used internally to sign JWTs; rotating it invalidates all active sessions"
-  },
-  {
-    "fieldname": "verified",
-    "fieldtype": "Check",
-    "label": "Email Verified",
-    "default": 0,
-    "description": "Indicates whether the user's email is verified (0 = No, 1 = Yes)"
-  },
-  {
-    "fieldname": "emailVisibility",
-    "fieldtype": "Check",
-    "label": "Email Visible",
-    "default": 0,
-    "description": "Controls whether the user's email is publicly visible (0 = Hidden, 1 = Visible)"
-  }
+    {
+      "fieldname": "password",
+      "fieldtype": "Password",
+      "label": "Password",
+      "no_copy": 1,
+      "description": "Hashed password for user authentication"
+    },
+    {
+      "fieldname": "tokenKey",
+      "fieldtype": "Data",
+      "label": "Token Key",
+      "hidden": 1,
+      "no_copy": 1,
+      "description": "Per-user secret used internally to sign JWTs; rotating it invalidates all active sessions"
+    },
+    {
+      "fieldname": "verified",
+      "fieldtype": "Check",
+      "label": "Email Verified",
+      "default": 0,
+      "description": "Indicates whether the user's email is verified (0 = No, 1 = Yes)"
+    },
+    {
+      "fieldname": "emailVisibility",
+      "fieldtype": "Check",
+      "label": "Email Visible",
+      "default": 0,
+      "description": "Controls whether the user's email is publicly visible (0 = Hidden, 1 = Visible)"
+    },
+    {
+      "fieldname": "_state",
+      "fieldtype": "Code",
+      "options": "JSON",
+      "label": "User state",
+      "description": "Fine-grained state"
+    }
   ],
   "icon": "fa fa-user",
   "id": "7xzeg43zusjxdui",
