@@ -129,6 +129,16 @@ await coworker.run({
   operation: "create",
   doctype: "Adapter",
   input: {
+    adapter_name: "sqlite-local",
+  }
+});
+
+
+sqlite-local
+await coworker.run({
+  operation: "create",
+  doctype: "Adapter",
+  input: {
     adapter_name: "adapter_auth_001",
   }
 });

@@ -1,6 +1,6 @@
 {
   "_autosave": 1,
-  "_schema_doctype": "Schema",
+  "schema_name": "Schema",
   "allow_import": 1,
   "allow_rename": 1,
   "autoname": "field:schema_name",
@@ -8,7 +8,7 @@
   "doctype": "Schema",
   "field_order": [
     "basic_section",
-    "_schema_doctype",
+    "schema_name",
     "name",
     "module",
     "description",
@@ -56,7 +56,7 @@
     {
       "bold": 1,
       "description": "The DocType this schema defines",
-      "fieldname": "_schema_doctype",
+      "fieldname": "schema_name",
       "fieldtype": "Data",
       "in_list_view": 1,
       "in_standard_filter": 1,
@@ -313,7 +313,7 @@
       "write": 1
     }
   ],
-  "search_fields": "_schema_doctype,name,module",
+  "search_fields": "schema_name,name,module",
   "sort_field": "modified",
   "sort_order": "DESC",
   "title_field": "name",

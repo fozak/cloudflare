@@ -1,3 +1,18 @@
+//Later 
+CW.controller = async function(run_doc) {
+  await stage0_rbac(run_doc);            // User authorization check
+  await stage1_guardInput(run_doc);      // Schema-level input validation
+  await stage2_oplog(run_doc);
+  await stage3_merge(run_doc);
+  await stage4_validateTransform(run_doc);
+  await stage5_fsm(run_doc);
+  await stage6_systemFields(run_doc);
+  await stage7_persist(run_doc);
+  return run_doc;
+};
+
+
+
 // Single entry point
 CW.controller = async function(run_doc) {
   await stage0_guardInput(run_doc);

@@ -1,3 +1,114 @@
+const SytemFields = [
+  // identity
+  { fieldname: "doctype", depends_on: "target_doctype",      fieldtype: "Data",     reqd: 1 },
+  { fieldname: "name",    depends_on: "fn: generateId(doc.doctype,"")"        fieldtype: "Data",     reqd: 1, unique: 1 },
+
+  // audit
+  { fieldname: "creation",    depends_on: "eval: now()",    fieldtype: "Datetime", set_on: "create" },
+  { fieldname: "modified",    depends_on: "eval: now()",    fieldtype: "Datetime", set_on: "always" },
+  { fieldname: "modified_by", depends_on: "fn: set.modified_by(run_doc)",   fieldtype: "JSON",     set_on: "always" },
+
+  // rbac
+  { fieldname: "owner",         depends_on: "session.user", fieldtype: "Link",     set_on: "create" },
+  { fieldname: "_allowed",      depends_on: "",             fieldtype: "JSON" },
+  { fieldname: "_allowed_read", depends_on: "",             fieldtype: "JSON" },
+
+  // lifecycle
+  { fieldname: "is_submittable", depends_on: "schema.is_submittable", fieldtype: "Check" },
+  { fieldname: "docstatus",      depends_on: "eval: 0",               fieldtype: "Int",  set_on: "create" },
+  { fieldname: "amended_from",   depends_on: "input.amended_from",    fieldtype: "Link" },
+  { fieldname: "amendment_date", depends_on: "input.amendment_date",  fieldtype: "Date" },
+
+  // hierarchy
+  { fieldname: "parent",      depends_on: "input.parent",      fieldtype: "Data" },
+  { fieldname: "parenttype",  depends_on: "input.parenttype",  fieldtype: "Data" },
+  { fieldname: "parentfield", depends_on: "input.parentfield", fieldtype: "Data" },
+  { fieldname: "idx",         depends_on: "input.idx",         fieldtype: "Int" },
+
+  // state
+  { fieldname: "_state", depends_on: "input._state", fieldtype: "Data" }
+];
+
+
+// version 2
+{
+  fieldname,
+  fieldtype,
+  depends_on,  // expression: "now()", "session.user", etc.
+  set_on,      // "create" | "always"
+  reqd,        // 0 | 1
+  unique       // 0 | 1
+}
+
+
+const SYSTEM_FIELDS = {
+  identity: [
+    "doctype",
+    "name"
+  ],
+
+  audit: [
+    "creation",
+    "modified",
+    "modified_by"
+  ],
+
+  rbac: [
+    "owner",
+    "_allowed",
+    "_allowed_read"
+  ],
+
+  lifecycle: [
+    "is_submittable",
+    "docstatus",
+    "amended_from",
+    "amendment_date"
+  ],
+
+  hierarchy: [
+    "parent",
+    "parenttype",
+    "parentfield",
+    "idx"
+  ],
+
+  state: [
+    "_state"
+  ]
+};
+
+
+//depends_on
+need to support both:
+1. Frappe-style eval expressions
+"eval: doc.status == 'Active'"
+"eval: now()"
+"eval: session.user"
+2. Named compiled functions (from doc.functions)
+"fn: select"
+"fn: init"
+"fn: validate"
+Unified depends_on notation:
+jsdepends_on: "eval: now()"           // evaluated expression
+depends_on: "eval: doc.status == 1" // conditional
+depends_on: "fn: select"            // compiled function reference
+Clean, explicit, no ambiguity — prefix tells the runtime exactly how to resolve it.
+jsfunction resolveDepends(depends_on, context) {
+  if (depends_on.startsWith("eval:")) {
+    return eval(depends_on.slice(5).trim());
+  }
+  if (depends_on.startsWith("fn:")) {
+    const name = depends_on.slice(3).trim();
+    return context.runtime[name];
+  }
+}
+
+
+
+
+
+
 // the ORDER of things
 // Step 1: Start with original from DB
 const doc = { ...existingDoc };  // NOT merged with user input yet!
@@ -64,7 +175,7 @@ await adapter.update(finalDoc);
   
 
 
-systemSchema.fields = [
+Schema.SystemFields.fields = {
     {
     fieldname: "doctype", //DocType name like Task
     label: "Document Full Name",
@@ -84,7 +195,7 @@ systemSchema.fields = [
     unique: 1, // NOT for all Doctypes?
   },
     {
-    depends_on: "eval:generateId(doc.doctype,doc.fullname)", //generateId(doctype, name) IF sematic- generate unique id based on doctype and name
+    depends_on: "fn: generateId(doc.doctype, fn(CW.Schema[doctype]))", //generateId(doctype, name) IF sematic- generate unique id based on doctype and name
     fieldname: "name", //15-char generated 
     fieldtype: "Data",
     label: "Document Name",
@@ -94,16 +205,17 @@ systemSchema.fields = [
     unique: 1, // unique
   },
       {
+    depends_on: "eval: => doc.name"
     fieldname: "id", //DocType name like Task
     label: "Document ID",
     oldfieldname: "",
     oldfieldtype: "Data",
-    reqd: 1,
-    unique: 1, // NOT for all Doctypes?
+    //</value>reqd: 1,  - not needed we dont control
+    //unique: 1, // we dont control
   },
   {
     fieldname: "owner",
-    fieldtype: "Link",
+    fieldtype: //NOT "Link",  //(ARRAY) always []
     hidden: 1,
     label: "Owner",
     options: "User",
@@ -111,7 +223,7 @@ systemSchema.fields = [
   },
   {
     fieldname: "_allowed", //from roles of User.json, renamed Its not of ONE doctype, it might ge mixed
-    fieldtype: "Table",
+    fieldtype: //</value>"Table", wrong. Array []
     hidden: 1,
     label: "Allowed Write",
     options: "", //SHOULD NOT BE OPTIONS or several OPTIONS, User, Roles,etc, we ARE MIXING
@@ -122,12 +234,12 @@ systemSchema.fields = [
 
   {
     fieldname: "_allowed_read", //from roles of User.json, renamed Its not of ONE doctype, it might ge mixed
-    fieldtype: "Table",
+    fieldtype: //</value>"Table", wrong. Array []
     hidden: 1,
     label: "Allowed Read",
     options: "", //SHOULD NOT BE OPTIONS or several OPTIONS, User, Roles,etc, we ARE MIXING
     permlevel: 1,
     print_hide: 1,
     read_only: 1,
-  },
-];
+  }
+},

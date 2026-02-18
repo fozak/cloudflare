@@ -1,4 +1,99 @@
 //TODO
+
+
+// RBAC 
+
+async checkPermission(run_doc)  
+//before start
+run_doc.operation is resolved
+run_doc.query is resolved
+run_doc.user is resolved from jwt
+
+so we can push to db pipeline the query 
+(initial query from run() + additional filter  const userRoles = user._allowed_read || []; // User's capabilities
+    
+    // Check against record's ACL
+    if (operation === "write" || operation === "update" || operation === "delete") {
+      const allowed = record._allowed || [];
+      return userRoles.some(role => allowed.includes(role));
+    }
+    
+    if (operation === "read") {
+      const allowed = record._allowed || [];
+      const allowedRead = record._allowed_read || [];
+      return userRoles.some(role => 
+        allowed.includes(role) || allowedRead.includes(role)
+      );
+    })
+
+
+//run_doc context
+
+const run_doc = {
+          // Frappe standard fields
+          doctype: "Run",  //own context
+          name: generateId("run"), //own context
+          creation: start, //own context
+          modified: start, //own context
+          operation_key: JSON.stringify(op),    //added operation_key
+          modified_by: resolved.owner || "system", //own context
+          docstatus: 0, //own context 
+          owner: resolved.owner || "system",  // after run_doc.user resolved
+
+          //compatibility with univeral doctype like Adapter
+          config: op.config || {}, // ADDED config
+          functions: op.functions || {}, // ADDED functions
+
+          // Operation definition
+          operation: resolved.operation,
+          operation_original: op.operation,
+          source: op.source || null, // ADDED use this for mutations of original + input
+          source_doctype: resolved.source_doctype,
+          target: op.target || null, // ADDED use this instead target
+          target_doctype: resolved.target_doctype,
+
+          // UI/Rendering (explicit takes priority over resolved)
+          view: "view" in op ? op.view : resolved.view,
+          component: "component" in op ? op.component : resolved.component,
+          container: "container" in op ? op.container : resolved.container,
+
+          // DATA - Delta architecture
+          query: op.query || {},
+          input: op.input || {},
+          target: null,
+
+          // Execution state
+          _state: {}, //ADDED state, changed to _state
+          status: "running",
+          success: false,
+          error: null,
+          duration: 0,
+
+          // Hierarchy
+          parent_run_id: mergedOptions.parentRunId || null,
+          child_run_ids: [],
+
+          // Flow context
+          flow_id: op.flow_id || null,
+          flow_template: op.flow_template || null,
+          step_id: op.step_id || null,
+          step_title: op.step_title || null,
+
+          // Authorization
+          user: {
+            name:     // this is userId used as id
+            email:
+            _allowed_read: [],  // User's capabilities  
+            _state:
+
+          }    //changed from agent:
+
+          // Options
+          options: mergedOptions,
+
+          // Runtime helpers
+          child: null,
+        };
 * refactor to use docname as semantic name and name as technical name
 
 // staate/CW
