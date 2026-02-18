@@ -3,6 +3,7 @@
   "_schema_doctype": "Schema",
   "allow_import": 1,
   "allow_rename": 1,
+  "autoname": "field:schema_name",
   "description": "Meta-schema that defines doctype structure",
   "doctype": "Schema",
   "field_order": [
@@ -42,7 +43,9 @@
     "docstatus",
     "owner",
     "_allowed",
-    "_allowed_read"
+    "_allowed_read",
+    "autoname",
+    "schema_name"
   ],
   "fields": [
     {
@@ -282,6 +285,16 @@
       "no_copy": 1,
       "print_hide": 1,
       "read_only": 1
+    },
+    {
+      "fieldname": "autoname",
+      "fieldtype": "Data",
+      "label": "Autoname"
+    },
+        {
+      "fieldname": "schema_name",
+      "fieldtype": "Data",
+      "label": "Schema Name"
     }
   ],
   "icon": "fa fa-code",
