@@ -1,3 +1,12 @@
+//TODO
+* refactor to use docname as semantic name and name as technical name
+
+// staate/CW
+
+CW.Adapter.adapterq8i39mys
+
+
+
 user:
 
 main:

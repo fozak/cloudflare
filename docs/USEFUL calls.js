@@ -1,3 +1,62 @@
+TODO 
+
+
+
+
+await coworker.run({
+  operation: "select",
+  from: "Role",
+  view: "form"
+});
+pb-adapter-switch.js:28 🔄 Adapter switched: pocketbase → pocketbase
+Client.ts:418 Fetch finished loading: GET "http://143.198.29.88:8090/api/collections/item/records?page=1&perPage=1&filter=doctype%20%3D%20%22Schema%22%20%26%26%20(data._schema_doctype%20%3D%20%22Role%22)".
+send @ Client.ts:418
+getList @ CrudService.ts:80
+getList @ RecordService.ts:225
+query @ pb-adapter-pocketbase.js:25
+pb._dbQuery @ pb-adapter-switch.js:46
+coworker._dbQuery @ coworker-run.js:854
+select @ coworker-run.js:373
+execute @ coworker-controller.js:73
+coworker._exec @ coworker-run.js:302
+coworker.run @ coworker-run.js:235
+coworker.getSchema @ coworker-run.js:897
+select @ coworker-run.js:349
+execute @ coworker-controller.js:99
+coworker._exec @ coworker-run.js:302
+coworker.run @ coworker-run.js:235
+(anonymous) @ VM389:1
+Client.ts:418 Fetch finished loading: GET "http://143.198.29.88:8090/api/collections/item/records?page=1&perPage=1000&skipTotal=1&filter=doctype%20%3D%20%22Role%22".
+send @ Client.ts:418
+getList @ CrudService.ts:80
+getList @ RecordService.ts:225
+request @ CrudService.ts:254
+_getFullList @ CrudService.ts:268
+getFullList @ CrudService.ts:50
+getFullList @ RecordService.ts:214
+query @ pb-adapter-pocketbase.js:38
+pb._dbQuery @ pb-adapter-switch.js:46
+coworker._dbQuery @ coworker-run.js:854
+select @ coworker-run.js:373
+await in select
+execute @ coworker-controller.js:99
+coworker._exec @ coworker-run.js:302
+coworker.run @ coworker-run.js:235
+(anonymous) @ VM389:1
+pb-adapter-switch.js:28 🔄 Adapter switched: pocketbase → pocketbase
+{doctype: 'Run', name: 'run7fy46vi04rb0', creation: 1771370412263, modified: 1771370412612, operation_key: '{"operation":"select","from":"Role","view":"form"}', …}
+CW.compileAll()
+VM486:1 ✓ PocketBase initialized: undefined
+coworker-state.js:186 ✓ Compiled 1 run(s)
+Promise {<fulfilled>: 1}
+CW.Role['System Manager']
+undefined
+CW.Role
+{Academics User: {…}, Accounts Manager: {…}, Accounts User: {…}, Administrator: {…}, Agriculture Manager: {…}, …}Academics User: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:24.384249', …}Accounts Manager: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:52.598036', …}Accounts User: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:52.604617', …}Administrator: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:35.623424', …}Agriculture Manager: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:47.248311', …}Agriculture User: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:47.235363', …}Analytics: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:04:00.836064', …}Auditor: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:02:48.520602', …}Blogger: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:46.338523', …}Customer: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:21.192902', …}Dashboard Manager: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:36.382405', …}Delivery Manager: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:21.986884', …}Delivery User: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:03:21.994895', …}Desk User: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:35.648580', …}Owner: {doctype: 'Role', name: 'Role-cxw1jgtq7c0hi4c', role_name: 'Owner'}Role-cxw1jgtq7c0hi4c: {doctype: 'Role', name: 'Role-cxw1jgtq7c0hi4c', role_name: 'Owner'}Workspace Manager: {_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:37.323549', …}[[Prototype]]: Object
+CW.Role['Accounts Manager']
+{_assign: null, _comments: null, _liked_by: null, _user_tags: null, creation: '2025-04-14 22:01:52.598036', …}
+
+
 
 CW.Adapter['adapterq8i39mys']  // ✅ Works
 CW.Adapter['http-gateway']      // ❌ Undefined
