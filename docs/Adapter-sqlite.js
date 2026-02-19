@@ -8,23 +8,106 @@
     "table": "item"
   },
   "functions": {
-    "init": "async function(run_doc) { const config = runtime.config; const table = config.table || 'item'; const createSQL = 'CREATE TABLE IF NOT EXISTS ' + table + ' (id TEXT PRIMARY KEY, data TEXT DEFAULT \\'{}\\')'; const idxName = 'CREATE INDEX IF NOT EXISTS idx_name ON ' + table + '(json_extract(data, \\'$.name\\'))'; const idxDoctype = 'CREATE INDEX IF NOT EXISTS idx_doctype ON ' + table + '(json_extract(data, \\'$.doctype\\'))'; const idxDocstatus = 'CREATE INDEX IF NOT EXISTS idx_docstatus ON ' + table + '(json_extract(data, \\'$.docstatus\\'))'; const idxCreated = 'CREATE INDEX IF NOT EXISTS idx_created ON ' + table + '(json_extract(data, \\'$.created\\'))'; const idxUpdated = 'CREATE INDEX IF NOT EXISTS idx_updated ON ' + table + '(json_extract(data, \\'$.updated\\'))'; await runtime.sql(createSQL, []); await runtime.sql(idxName, []); await runtime.sql(idxDoctype, []); await runtime.sql(idxDocstatus, []); await runtime.sql(idxCreated, []); await runtime.sql(idxUpdated, []); console.log('SQLite adapter ready:', config.url); }",
-    "sql": "async function(query, params) { params = params || []; const config = runtime.config; const res = await fetch(config.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query, params: params }) }); if (!res.ok) { const err = await res.json().catch(function() { return { error: res.statusText }; }); throw new Error('SQLite HTTP error: ' + (err.error || res.statusText)); } const results = await res.json(); return Array.isArray(results[0]) ? results[0] : results; }",
-    "col": "function(field) { if (field === 'id') return 'id'; return 'json_extract(data, \\'$.' + field + '\\')'; }",
-    "unpack": "function(row) { if (!row) return null; try { return JSON.parse(row.data || '{}'); } catch(e) { return {}; } }",
-    "generateId": "function(doctype) { var ts = Date.now(); var random = Math.random().toString(36).substring(2, 8); return (doctype || 'record').toLowerCase() + '-' + ts + '-' + random; }",
-    "whereToSQL": "function(where) { if (!where || typeof where !== 'object') return { sql: '', params: [] }; var parts = []; var params = []; var col = function(field) { if (field === 'id') return 'id'; return 'json_extract(data, \\'$.' + field + '\\')'; }; var self = function(w) { return runtime.whereToSQL(w); }; for (var key in where) { var value = where[key]; if (key === 'OR') { var sub = value.map(function(c) { return self(c); }).filter(function(r) { return r.sql; }); if (sub.length) { parts.push('(' + sub.map(function(r) { return r.sql; }).join(' OR ') + ')'); sub.forEach(function(r) { params = params.concat(r.params); }); } continue; } if (key === 'AND') { var sub = value.map(function(c) { return self(c); }).filter(function(r) { return r.sql; }); if (sub.length) { parts.push('(' + sub.map(function(r) { return r.sql; }).join(' AND ') + ')'); sub.forEach(function(r) { params = params.concat(r.params); }); } continue; } if (key === 'NOT') { var res = self(value); if (res.sql) { parts.push('NOT (' + res.sql + ')'); params = params.concat(res.params); } continue; } var c = col(key); if (value === null || value === undefined) { parts.push(c + ' IS NULL'); continue; } if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') { parts.push(c + ' = ?'); params.push(value); continue; } if (typeof value === 'object' && !Array.isArray(value)) { for (var op in value) { var opVal = value[op]; if (op === 'equals') { parts.push(c + ' = ?'); params.push(opVal); } else if (op === 'not') { parts.push(c + ' != ?'); params.push(opVal); } else if (op === 'contains') { parts.push(c + ' LIKE ?'); params.push('%' + opVal + '%'); } else if (op === 'startsWith') { parts.push(c + ' LIKE ?'); params.push(opVal + '%'); } else if (op === 'endsWith') { parts.push(c + ' LIKE ?'); params.push('%' + opVal); } else if (op === 'gt') { parts.push(c + ' > ?'); params.push(opVal); } else if (op === 'gte') { parts.push(c + ' >= ?'); params.push(opVal); } else if (op === 'lt') { parts.push(c + ' < ?'); params.push(opVal); } else if (op === 'lte') { parts.push(c + ' <= ?'); params.push(opVal); } else if (op === 'in' && Array.isArray(opVal) && opVal.length) { parts.push(c + ' IN (' + opVal.map(function() { return '?'; }).join(',') + ')'); params = params.concat(opVal); } else if (op === 'notIn' && Array.isArray(opVal) && opVal.length) { parts.push(c + ' NOT IN (' + opVal.map(function() { return '?'; }).join(',') + ')'); params = params.concat(opVal); } } } } return { sql: parts.join(' AND '), params: params }; }",
-    "rbacFilter": "function(user, operation) { var isWrite = ['update', 'delete', 'create'].indexOf((operation || '').toLowerCase()) !== -1; var userAllowed = JSON.stringify(user._allowed_read || []); if (isWrite) { return { sql: 'json_extract(data, \\'$.owner\\') = ? OR EXISTS (SELECT 1 FROM json_each(json_extract(data, \\'$._allowed\\')) rec JOIN json_each(?) usr ON usr.value = rec.value)', params: [user.name, userAllowed] }; } return { sql: 'json_extract(data, \\'$.owner\\') = ? OR EXISTS (SELECT 1 FROM json_each(json_extract(data, \\'$._allowed_read\\')) r WHERE r.value = \\'roleispublic\\') OR EXISTS (SELECT 1 FROM json_each(json_extract(data, \\'$._allowed\\')) rec JOIN json_each(?) usr ON usr.value = rec.value) OR EXISTS (SELECT 1 FROM json_each(json_extract(data, \\'$._allowed_read\\')) rec JOIN json_each(?) usr ON usr.value = rec.value)', params: [user.name, userAllowed, userAllowed] }; }",
-    "buildWhere": "function(run_doc) { var source_doctype = run_doc.source_doctype; var query = run_doc.query || {}; var user = run_doc.user; var parts = []; var params = []; if (source_doctype && source_doctype !== 'All') { parts.push('json_extract(data, \\'$.doctype\\') = ?'); params.push(source_doctype); } if (query.where) { var w = runtime.whereToSQL(query.where); if (w.sql) { parts.push('(' + w.sql + ')'); params = params.concat(w.params); } } if (user) { var r = runtime.rbacFilter(user, run_doc.operation); parts.push('(' + r.sql + ')'); params = params.concat(r.params); } if (parts.length === 0) return null; return { sql: parts.join(' AND '), params: params }; }",
-    "buildSort": "function(orderBy) { if (!orderBy) return null; var col = function(field) { if (field === 'id') return 'id'; return 'json_extract(data, \\'$.' + field + '\\')'; }; var entries = Array.isArray(orderBy) ? orderBy.reduce(function(acc, o) { return acc.concat(Object.entries(o)); }, []) : Object.entries(orderBy); return entries.map(function(e) { return col(e[0]) + ' ' + (e[1].toUpperCase() === 'DESC' ? 'DESC' : 'ASC'); }).join(', '); }",
-    "selectSQL": "function(where, sort, take, skip) { var sql = 'SELECT * FROM ' + (runtime.config.table || 'item'); var params = []; if (where) { sql += ' WHERE ' + where.sql; params = params.concat(where.params); } if (sort) { sql += ' ORDER BY ' + sort; } if (take !== undefined) { sql += ' LIMIT ?'; params.push(take); } if (skip !== undefined) { sql += ' OFFSET ?'; params.push(skip); } return { sql: sql, params: params }; }",
-    "select": "async function(run_doc) { var query = run_doc.query || {}; var take = query.take; var skip = query.skip; var where = runtime.buildWhere(run_doc); var sort = runtime.buildSort(query.orderBy); var built = runtime.selectSQL(where, sort, take, skip); var rows = await runtime.sql(built.sql, built.params); var data = rows.map(function(r) { return runtime.unpack(r); }); var total = data.length; if (take !== undefined) { var countSQL = 'SELECT COUNT(*) as count FROM ' + (runtime.config.table || 'item') + (where ? ' WHERE ' + where.sql : ''); var countRows = await runtime.sql(countSQL, where ? where.params : []); total = (countRows[0] && countRows[0].count) || data.length; } var page = (skip && take) ? Math.floor(skip / take) + 1 : 1; var totalPages = take ? Math.ceil(total / take) : 1; return { data: data, meta: { total: total, page: page, pageSize: take || total, totalPages: totalPages, hasMore: page < totalPages } }; }",
-    "create": "async function(run_doc) { var inputData = (run_doc.input && run_doc.input.data) ? run_doc.input.data : run_doc.input; if (!inputData || Object.keys(inputData).length === 0) throw new Error('CREATE requires input data'); var now = new Date().toISOString(); var id = inputData.name || runtime.generateId(run_doc.target_doctype); var record = Object.assign({}, inputData, { name: id, doctype: inputData.doctype || run_doc.target_doctype, created: inputData.created || now, updated: now }); await runtime.sql('INSERT INTO ' + (runtime.config.table || 'item') + ' (id, data) VALUES (?, ?)', [id, JSON.stringify(record)]); var rows = await runtime.sql('SELECT * FROM ' + (runtime.config.table || 'item') + ' WHERE id = ?', [id]); return { data: runtime.unpack(rows[0]), meta: { operation: 'create', id: id, name: id } }; }",
-    "update": "async function(run_doc) { var inputData = (run_doc.input && run_doc.input.data) ? run_doc.input.data : run_doc.input; var where = runtime.buildWhere(run_doc); var built = runtime.selectSQL(where); var existingRows = await runtime.sql(built.sql, built.params); if (existingRows.length === 0) return { data: [], meta: { operation: 'update', updated: 0 } }; var updated = []; for (var i = 0; i < existingRows.length; i++) { var row = existingRows[i]; var existing = runtime.unpack(row); var merged = Object.assign({}, existing, inputData, { name: existing.name, doctype: existing.doctype, updated: new Date().toISOString() }); await runtime.sql('UPDATE ' + (runtime.config.table || 'item') + ' SET data = ? WHERE id = ?', [JSON.stringify(merged), row.id]); var updatedRows = await runtime.sql('SELECT * FROM ' + (runtime.config.table || 'item') + ' WHERE id = ?', [row.id]); updated.push(runtime.unpack(updatedRows[0])); } return { data: updated, meta: { operation: 'update', updated: updated.length } }; }",
-    "delete": "async function(run_doc) { var query = run_doc.query || {}; if (!query.where || Object.keys(query.where).length === 0) throw new Error('DELETE requires query.where to prevent mass deletion'); var where = runtime.buildWhere(run_doc); var built = runtime.selectSQL(where); var rows = await runtime.sql(built.sql, built.params); if (rows.length === 0) return { data: [], meta: { operation: 'delete', deleted: 0 } }; for (var i = 0; i < rows.length; i++) { await runtime.sql('DELETE FROM ' + (runtime.config.table || 'item') + ' WHERE id = ?', [rows[i].id]); } return { data: [], meta: { operation: 'delete', deleted: rows.length } }; }",
-    "execute": "async function(run_doc) { var op = (run_doc.operation || '').toLowerCase(); if (op === 'select' || op === 'takeone') return await runtime.select(run_doc); if (op === 'create') return await runtime.create(run_doc); if (op === 'update') return await runtime.update(run_doc); if (op === 'delete') return await runtime.delete(run_doc); throw new Error('SQLite adapter: unsupported operation: ' + op); }"
-  }
+  "init": "async function(run_doc) { const config = runtime.config; const table = config.table || 'item'; await runtime.sql('CREATE TABLE IF NOT EXISTS ' + table + \" (id TEXT PRIMARY KEY, data TEXT DEFAULT '{}')\"); await runtime.sql('CREATE INDEX IF NOT EXISTS idx_name ON ' + table + \"(json_extract(data, '$.name'))\"); await runtime.sql('CREATE INDEX IF NOT EXISTS idx_doctype ON ' + table + \"(json_extract(data, '$.doctype'))\"); await runtime.sql('CREATE INDEX IF NOT EXISTS idx_docstatus ON ' + table + \"(json_extract(data, '$.docstatus'))\"); await runtime.sql('CREATE INDEX IF NOT EXISTS idx_created ON ' + table + \"(json_extract(data, '$.created'))\"); await runtime.sql('CREATE INDEX IF NOT EXISTS idx_updated ON ' + table + \"(json_extract(data, '$.updated'))\"); console.log('SQLite adapter ready:', config.url); }",
+  "sql": "async function(query, params) { params = params || []; const res = await fetch(runtime.config.url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ query: query, params: params }) }); if (!res.ok) { const err = await res.json().catch(function() { return { error: res.statusText }; }); throw new Error('SQLite HTTP error: ' + (err.error || res.statusText)); } const results = await res.json(); return Array.isArray(results[0]) ? results[0] : results; }",
+  "unpack": "function(row) { if (!row) return null; try { return JSON.parse(row.data || '{}'); } catch(e) { return {}; } }",
+  "generateId": "function(doctype) { var ts = Date.now(); var rand = Math.random().toString(36).substring(2, 8); return (doctype || 'record').toLowerCase() + '-' + ts + '-' + rand; }",
+  "col": "function(field) { if (field === 'id') return 'id'; return \"json_extract(data, '$.\" + field + \"')\"; }",
+  "whereToSQL": "function(where) { if (!where || typeof where !== 'object') return { sql: '', params: [] }; var parts = []; var params = []; for (var key in where) { var value = where[key]; if (key === 'OR') { var sub = value.map(function(c) { return runtime.whereToSQL(c); }).filter(function(r) { return r.sql; }); if (sub.length) { parts.push('(' + sub.map(function(r) { return r.sql; }).join(' OR ') + ')'); sub.forEach(function(r) { params = params.concat(r.params); }); } continue; } if (key === 'AND') { var sub2 = value.map(function(c) { return runtime.whereToSQL(c); }).filter(function(r) { return r.sql; }); if (sub2.length) { parts.push('(' + sub2.map(function(r) { return r.sql; }).join(' AND ') + ')'); sub2.forEach(function(r) { params = params.concat(r.params); }); } continue; } if (key === 'NOT') { var res = runtime.whereToSQL(value); if (res.sql) { parts.push('NOT (' + res.sql + ')'); params = params.concat(res.params); } continue; } var c = runtime.col(key); if (value === null || value === undefined) { parts.push(c + ' IS NULL'); continue; } if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') { parts.push(c + ' = ?'); params.push(value); continue; } if (typeof value === 'object' && !Array.isArray(value)) { for (var op in value) { var opVal = value[op]; if (op === 'equals') { parts.push(c + ' = ?'); params.push(opVal); } else if (op === 'not') { parts.push(c + ' != ?'); params.push(opVal); } else if (op === 'contains') { parts.push(c + ' LIKE ?'); params.push('%' + opVal + '%'); } else if (op === 'startsWith') { parts.push(c + ' LIKE ?'); params.push(opVal + '%'); } else if (op === 'endsWith') { parts.push(c + ' LIKE ?'); params.push('%' + opVal); } else if (op === 'gt') { parts.push(c + ' > ?'); params.push(opVal); } else if (op === 'gte') { parts.push(c + ' >= ?'); params.push(opVal); } else if (op === 'lt') { parts.push(c + ' < ?'); params.push(opVal); } else if (op === 'lte') { parts.push(c + ' <= ?'); params.push(opVal); } else if (op === 'in' && Array.isArray(opVal) && opVal.length) { parts.push(c + ' IN (' + opVal.map(function() { return '?'; }).join(',') + ')'); params = params.concat(opVal); } else if (op === 'notIn' && Array.isArray(opVal) && opVal.length) { parts.push(c + ' NOT IN (' + opVal.map(function() { return '?'; }).join(',') + ')'); params = params.concat(opVal); } } } } return { sql: parts.join(' AND '), params: params }; }",
+  "rbacFilter": "function(user, operation) { var isWrite = ['update', 'delete', 'create'].indexOf((operation || '').toLowerCase()) !== -1; var userAllowed = JSON.stringify(user._allowed_read || []); if (isWrite) { return { sql: \"json_extract(data, '$.owner') = ? OR EXISTS (SELECT 1 FROM json_each(json_extract(data, '$._allowed')) rec JOIN json_each(?) usr ON usr.value = rec.value)\", params: [user.name, userAllowed] }; } return { sql: \"json_extract(data, '$.owner') = ? OR EXISTS (SELECT 1 FROM json_each(json_extract(data, '$._allowed_read')) r WHERE r.value = 'roleispublic') OR EXISTS (SELECT 1 FROM json_each(json_extract(data, '$._allowed')) rec JOIN json_each(?) usr ON usr.value = rec.value) OR EXISTS (SELECT 1 FROM json_each(json_extract(data, '$._allowed_read')) rec JOIN json_each(?) usr ON usr.value = rec.value)\", params: [user.name, userAllowed, userAllowed] }; }",
+  "buildWhere": "function(run_doc) { var source_doctype = run_doc.source_doctype; var query = run_doc.query || {}; var user = run_doc.user; var parts = []; var params = []; if (source_doctype && source_doctype !== 'All') { parts.push(\"json_extract(data, '$.doctype') = ?\"); params.push(source_doctype); } if (query.where) { var w = runtime.whereToSQL(query.where); if (w.sql) { parts.push('(' + w.sql + ')'); params = params.concat(w.params); } } if (user) { var r = runtime.rbacFilter(user, run_doc.operation); parts.push('(' + r.sql + ')'); params = params.concat(r.params); } if (parts.length === 0) return null; return { sql: parts.join(' AND '), params: params }; }",
+  "buildSort": "function(orderBy) { if (!orderBy) return null; var entries = Array.isArray(orderBy) ? orderBy.reduce(function(acc, o) { return acc.concat(Object.entries(o)); }, []) : Object.entries(orderBy); return entries.map(function(e) { return runtime.col(e[0]) + ' ' + (e[1].toUpperCase() === 'DESC' ? 'DESC' : 'ASC'); }).join(', '); }",
+  "selectSQL": "function(where, sort, take, skip) { var table = runtime.config.table || 'item'; var sql = 'SELECT * FROM ' + table; var params = []; if (where) { sql += ' WHERE ' + where.sql; params = params.concat(where.params); } if (sort) { sql += ' ORDER BY ' + sort; } if (take !== undefined) { sql += ' LIMIT ?'; params.push(take); } if (skip !== undefined) { sql += ' OFFSET ?'; params.push(skip); } return { sql: sql, params: params }; }",
+  "select": "async function(run_doc) { var query = run_doc.query || {}; var take = query.take; var skip = query.skip; var where = runtime.buildWhere(run_doc); var sort = runtime.buildSort(query.orderBy); var built = runtime.selectSQL(where, sort, take, skip); var rows = await runtime.sql(built.sql, built.params); var data = rows.map(function(r) { return runtime.unpack(r); }); var total = data.length; if (take !== undefined) { var table = runtime.config.table || 'item'; var countSQL = 'SELECT COUNT(*) as count FROM ' + table + (where ? ' WHERE ' + where.sql : ''); var countRows = await runtime.sql(countSQL, where ? where.params : []); total = (countRows[0] && countRows[0].count) || data.length; } var page = (skip && take) ? Math.floor(skip / take) + 1 : 1; var totalPages = take ? Math.ceil(total / take) : 1; return { data: data, meta: { total: total, page: page, pageSize: take || total, totalPages: totalPages, hasMore: page < totalPages } }; }",
+  "create": "async function(run_doc) { var inputData = (run_doc.input && run_doc.input.data) ? run_doc.input.data : run_doc.input; if (!inputData || Object.keys(inputData).length === 0) throw new Error('CREATE requires input data'); var now = new Date().toISOString(); var id = inputData.name || runtime.generateId(run_doc.target_doctype); var record = Object.assign({}, inputData, { name: id, doctype: inputData.doctype || run_doc.target_doctype, created: inputData.created || now, updated: now }); var table = runtime.config.table || 'item'; await runtime.sql('INSERT INTO ' + table + ' (id, data) VALUES (?, ?)', [id, JSON.stringify(record)]); var rows = await runtime.sql('SELECT * FROM ' + table + ' WHERE id = ?', [id]); return { data: runtime.unpack(rows[0]), meta: { operation: 'create', id: id, name: id } }; }",
+  "update": "async function(run_doc) { var inputData = (run_doc.input && run_doc.input.data) ? run_doc.input.data : run_doc.input; var where = runtime.buildWhere(run_doc); var built = runtime.selectSQL(where); var existingRows = await runtime.sql(built.sql, built.params); if (existingRows.length === 0) return { data: [], meta: { operation: 'update', updated: 0 } }; var updated = []; var table = runtime.config.table || 'item'; for (var i = 0; i < existingRows.length; i++) { var row = existingRows[i]; var existing = runtime.unpack(row); var merged = Object.assign({}, existing, inputData, { name: existing.name, doctype: existing.doctype, updated: new Date().toISOString() }); await runtime.sql('UPDATE ' + table + ' SET data = ? WHERE id = ?', [JSON.stringify(merged), row.id]); var updatedRows = await runtime.sql('SELECT * FROM ' + table + ' WHERE id = ?', [row.id]); updated.push(runtime.unpack(updatedRows[0])); } return { data: updated, meta: { operation: 'update', updated: updated.length } }; }",
+  "delete": "async function(run_doc) { var query = run_doc.query || {}; if (!query.where || Object.keys(query.where).length === 0) throw new Error('DELETE requires query.where to prevent mass deletion'); var where = runtime.buildWhere(run_doc); var built = runtime.selectSQL(where); var table = runtime.config.table || 'item'; var rows = await runtime.sql(built.sql, built.params); if (rows.length === 0) return { data: [], meta: { operation: 'delete', deleted: 0 } }; for (var i = 0; i < rows.length; i++) { await runtime.sql('DELETE FROM ' + table + ' WHERE id = ?', [rows[i].id]); } return { data: [], meta: { operation: 'delete', deleted: rows.length } }; }",
+  "execute": "async function(run_doc) { var op = (run_doc.operation || '').toLowerCase(); if (op === 'select' || op === 'takeone') return await runtime.select(run_doc); if (op === 'create') return await runtime.create(run_doc); if (op === 'update') return await runtime.update(run_doc); if (op === 'delete') return await runtime.delete(run_doc); throw new Error('SQLite adapter: unsupported operation: ' + op); }"
 }
+}
+
+
+//Example 
+
+// Step 1: Create a role id (just a string, simulate generateId)
+const roleProjectUser = "role-project-user";
+const roleAdmin = "role-admin";
+
+// Step 2: Create User record
+await CW.Adapter["sqlite-local"].create({
+  target_doctype: "User",
+  input: {
+    doctype: "User",
+    name: "user-john",
+    email: "john@test.com",
+    _allowed_read: [roleProjectUser],  // John's capabilities
+    _allowed: [],
+    owner: ""
+  }
+})
+
+// Step 3: Create Task John CAN read (matching role)
+await CW.Adapter["sqlite-local"].create({
+  target_doctype: "Task",
+  input: {
+    doctype: "Task",
+    title: "Task John can read",
+    status: "Open",
+    _allowed_read: [roleProjectUser],  // matches John's capability
+    _allowed: [roleAdmin],
+    owner: ""
+  }
+})
+
+// Step 4: Create Task John CANNOT read
+await CW.Adapter["sqlite-local"].create({
+  target_doctype: "Task",
+  input: {
+    doctype: "Task",
+    title: "Task John cannot read",
+    status: "Open",
+    _allowed_read: [roleAdmin],  // John doesn't have this
+    _allowed: [roleAdmin],
+    owner: ""
+  }
+})
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+(anonymous) @ VM1584:6
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+await in eval
+(anonymous) @ VM1584:6
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+(anonymous) @ VM1584:19
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+await in eval
+(anonymous) @ VM1584:19
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+(anonymous) @ VM1584:32
+VM1559:1 Fetch finished loading: POST "http://localhost:3000/".
+eval @ VM1559:1
+eval @ VM1569:1
+await in eval
+(anonymous) @ VM1584:32
+{data: {…}, meta: {…}}
+// Should return only 1 task (the one John can read)
+await CW.Adapter["sqlite-local"].select({
+  source_doctype: "Task",
+  query: { where: { status: "Open" } },
+  user: {
+    name: "user-john",
+    _allowed_read: ["role-project-user"]
+  }
+})
 
 // version 2. with JSON column only. NOT json
 
