@@ -1,24 +1,27 @@
 //schema for run doc
 CW.Schema['Run']._state = {
-  "0": {
-    name: "run_lifecycle",
-    values: [0,1,2,3,4,5],
-    options: [
-      "initialized",
-      "materialized",
-      "merged",
-      "doc_fsm_applied",
-      "persisted",
-      "rendered"
+  "1": {
+    "name": "_lifecycle",
+    "values": [0,1,2,3,4,5,6,7,8,9],
+    "options": [
+      "init", "validated", "resolved", "materialized", "merged",
+      "transformed", "fsm_done", "system_fields", "persisted", "rendered"
     ],
 
-    "0_1": { label: "materialize" },
-    "1_2": { label: "merge input" },
-    "2_3": { label: "apply doc fsm" },
-    "3_4": { label: "persist" },
-    "4_5": { label: "render" }
+    "0_1": { label: "RBAC/Guard", handler: "async (rd) => await CW.rbac.check(rd)" },
+    "1_2": { label: "Resolve operation", handler: "async (rd) => { rd.resolved = CW._resolveAll(rd) }" },
+    "2_3": { label: "Materialize target", handler: "async (rd) => { rd.target = await CW._exec(rd) }" },
+    "3_4": { label: "Merge input", handler: "async (rd) => Object.assign(rd.target.data[0], rd.input)" },
+    "4_5": { label: "Validate/Transform", handler: "async (rd) => await CW._validateTransform(rd)" },
+    "5_6": { label: "Run FSM", handler: "async (rd) => await CW.fsm.handle(rd)" },
+    "6_7": { label: "System fields", handler: "async (rd) => CW._applySystemFields(rd)" },
+    "7_8": { label: "Persist", handler: "async (rd) => { if(rd.options.persist) await CW._dbUpdate(rd.target.data[0]) }" },
+    "8_9": { label: "Render", handler: "async (rd) => { if(typeof CW._render==='function') CW._render(rd) }" },
+
+    "any_-1": { label: "Failed transition", handler: "async (rd,e) => { rd.error=e }" }
   }
-}
+};
+
 
 //_________________________ End of schema
 
@@ -34,12 +37,7 @@ run_doc = {
  //proposal
    _state: 
    {
-  "0.0": 1, // guard
-  "0.1": 1, // materialize
-  "0.2": 1, // merge
-  "0.3": 0, // doc FSM
-  "0.4": 0, // persist
-  "0.5": 0  // render
+//actual state
 }
 
   },
@@ -48,7 +46,7 @@ run_doc = {
 //__________________________END OF run_doc
 
 //doctype is User, so then 
-CW.Schema['User']._state =
+"CW.Schema['User']._state":
  {
   "1": {
     "name": "_auth",
@@ -56,7 +54,7 @@ CW.Schema['User']._state =
     "options": ["Invited/Unverified", "Active/Unverified", "Active/Verified", "Locked"],
     
     "0_1": {
-      "label": "Activate User",
+      "label": "Activate User", (no label) // to more to permisttions 
       "handler": "async (run_doc) => {
         const u = run_doc.target.data[0];
         
@@ -90,9 +88,69 @@ CW.Schema['User']._state =
         // Audit log
         await CW.Adapter.audit.log(run_doc, 'user_activated');
       }"
-    }
+  
   },
 
+
+
+
+
+//_______________ document state
+
+target.data._state = {
+  1: {
+    "0_1": 1,   // success
+    "0_2": -1   // failure
+  }
+};
+
+
+  "CW.Schema['User']":
+  {
+  "_state": 
+   {
+  "1": {
+    "name": "_auth",
+    "values": [0, 1, 2, 3],
+    "options": ["Invited/Unverified", "Active/Unverified", "Active/Verified", "Locked"],
+    
+    "0_1": {
+      "label": "Activate User", (no label) // to more to permisttions 
+      "handler": "async (run_doc) => {
+        const u = run_doc.target.data[0];
+        
+        // Auth state
+        u.enabled = true;
+        u.invited = false;
+        
+        // Password (if not already hashed during creation)
+        if (u._temp_password) {
+          u.password = await CW.Adapter.auth.hashPassword(u._temp_password);
+          delete u._temp_password;
+        }
+        
+        // JWT token key (per-user secret)
+        u.tokenKey = CW.Adapter.auth.generateTokenKey();
+        
+        // Session setup
+        u.last_login = new Date().toISOString();
+      }",
+      
+      "sideEffects": "async (run_doc) => {
+        const u = run_doc.target.data[0];
+        
+        // Issue JWT
+        const jwt = await CW.Adapter.auth.issueJWT(u);
+        run_doc.jwt = jwt;
+        
+        // Send verification email
+        await CW.Adapter.email.sendVerification(run_doc);
+        
+        // Audit log
+        await CW.Adapter.audit.log(run_doc, 'user_activated');
+      }"
+  
+  } //fulleFSM here 
   "actions": [],
   "allow_import": 1,
   "allow_rename": 1,
@@ -1087,7 +1145,14 @@ CW.Schema['User']._state =
     {
       "role": "Desk User",
       "select": 1
-    }
+    },
+    {
+  "role": "Self",
+  "1.0_1": {
+    "label": "Accept Invite",
+    "message": "You have successfully verified your account"
+  }
+},
   ],
   "quick_entry": 1,
   "route": "user",
@@ -1100,18 +1165,4 @@ CW.Schema['User']._state =
   "states": [],
   "title_field": "full_name",
   "track_changes": 1
-},
-
-
-
-//_______________ document state
-
-target.data._state = {
-  1: {
-    "0_1": 1,   // success
-    "0_2": -1   // failure
-  }
-};
-
-
-
+}

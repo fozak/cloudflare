@@ -1,6 +1,136 @@
 //TODO
 
 
+//CONTROLLER
+
+/* ISSUES
+TODO  ISSUE - SHALLOW observing input
+TODO  ISSUE - validation calls back to react 
+TODO  DONOT forget _autosave = 0 on schema 
+
+Current Situation
+
+Your form writes:
+
+run.input[fieldname] = value; // shallow Proxy observes this
+
+
+You eventually want:
+
+run.input._state.1.2 = someValue; // currently NOT observed
+
+
+Your current shallow Proxy setup:
+
+run_doc.input = new Proxy(run_doc.input, {
+  set(target, prop, value) {
+    target[prop] = value;
+    CW.controller(run_doc);
+    return true;
+  }
+});
+
+
+Only fires when prop is a top-level key, so _state.1.2 writes are ignored.
+
+Option 1 — Immutable updates in React
+
+Instead of mutating deep nested fields, always replace the top-level _state object:
+
+const newState = {
+  ...run.input._state,
+  1: {
+    ...run.input._state[1],
+    2: newValue
+  }
+};
+run.input._state = newState; // shallow Proxy fires
+
+
+✅ Pros:
+
+Works with your current shallow Proxy
+
+Minimal changes, keeps existing controller logic intact
+
+Fits React-style immutable updates
+
+❌ Cons:
+
+Verbose for deeply nested structures
+
+Can be awkward if _state gets very deep or very interactive
+
+Option 2 — Deep reactive Proxy
+
+Recursively wrap _state so any nested mutation triggers CW.controller automatically:
+
+function makeReactive(obj, callback) {
+  return new Proxy(obj, {
+    get(target, prop) {
+      const value = target[prop];
+      if (value && typeof value === "object") {
+        return makeReactive(value, callback);
+      }
+      return value;
+    },
+    set(target, prop, value) {
+      target[prop] = value;
+      callback();
+      return true;
+    }
+  });
+}
+
+// apply only to `_state` if you want selective deep reactivity
+run_doc.input._state = makeReactive(run_doc.input._state, () =>
+  CW.controller(run_doc)
+);
+
+
+✅ Pros:
+
+Works automatically for arbitrary depth
+
+No changes needed in React form logic
+
+❌ Cons:
+
+Slight performance cost if _state tree is large
+
+Every nested object access creates a Proxy recursively
+
+Recommended Hybrid Approach for your case
+
+Since you have a shallow top-level Proxy for most fields, and _state is the only complex interactive object:
+
+Keep shallow Proxy on run_doc.input for all normal fields.
+
+Wrap _state separately with deep reactive Proxy:
+
+run_doc.input._state = makeReactive(run_doc.input._state || {}, () =>
+  CW.controller(run_doc)
+);
+
+
+You get automatic controller triggers for deep _state mutations
+
+Other fields stay cheap and shallow
+
+No need to rewrite the whole controller — it continues working as-is
+
+Summary
+Path	Pros	Cons
+Immutable top-level _state replacement	Simple, performant, fits React	Verbose for deep updates
+Deep Proxy on _state only	Automatic for nested fields, minimal React changes	Some performance overhead
+Deep Proxy on full input	Fully reactive	Expensive if many fields
+
+💡 For your future interactive _state widget, hybrid deep Proxy on _state is the cleanest solution.
+
+I can draft a ready-to-drop implementation of coworker.run + shallow input Proxy + deep _state reactive Proxy that works with your current React patterns and CW.controller.
+
+Do you want me to do that?
+
 // RBAC 
 
 async checkPermission(run_doc)  
