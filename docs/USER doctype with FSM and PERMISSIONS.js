@@ -1,5 +1,29 @@
 
 
+//v2 
+
+// FSM schema — defines the transition
+schema._state = {
+  "1.name": "_auth",
+  "1.0_1.Adapter.auth.signup": ""  // transition definition
+}
+
+// Permissions — defines who can trigger it and how it's labeled
+schema.permissions = {
+  "System Manager": {
+    "1.0_1.label": "Activate User",
+  },
+  "Self": {
+    "1.0_1.label": "Accept Invite",
+    "1.0_1.message": "Welcome!"
+  }
+}
+
+// Document _state — records what happened
+doc._state = {
+  "1.0_1.Adapter.auth.signup": "1"  // completed
+}
+
 //_______________ document state
 
 target.data._state = {  //< -- NOT verified
@@ -1054,6 +1078,13 @@ target.data._state = {  //< -- NOT verified
   "1.2_3": { "handler": "...", "sideEffects": "..." },  // Active/Verified → Locked
   "1.3_1": { "handler": "...", "sideEffects": "..." },  // Locked → Active/Unverified (unlock)
 }
+
+//Schema
+
+schema._state = 
+{}
+//after fsm
+document._state =
 
 // permissions
 { "role": "System Manager", "1.0_1": { "label": "Activate User" },

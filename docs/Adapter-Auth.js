@@ -1,3 +1,62 @@
+[SIGNIN - your flow]
+user signs in
+        ↓
+verify password
+        ↓
+generateToken(user)
+  payload: {
+    sub: user.email,
+    name: user.name,
+    _allowed_read: user._allowed_read,  // full roles
+    exp: now + 86400
+  }
+  sign with jwtSecret
+        ↓
+return token to client
+
+[EVERY REQUEST - your flow]
+client sends Bearer token
+        ↓
+gateway verifyJWT(token, jwtSecret)
+  ├── signature check
+  └── exp check
+        ↓ valid
+run_doc.user = payload  // full stub, no DB hit
+{
+  sub: "user@example.com",
+  name: "John",
+  _allowed_read: ["System Manager"]
+}
+        ↓
+controller uses run_doc.user._allowed_read
+for permission checks
+
+
+
+
+generateToken: "async function(run_doc) {
+  const user = run_doc.target.data[0];
+  const header = btoa(JSON.stringify({ alg: 'HS256', typ: 'JWT' }));
+  const payload = btoa(JSON.stringify({
+    sub: user.email,
+    name: user.name,
+    _allowed_read: user._allowed_read,
+    exp: Math.floor(Date.now() / 1000) + 86400
+  }));
+  const data = header + '.' + payload;
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw', encoder.encode(this.config.jwtSecret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, encoder.encode(data));
+  run_doc.ephemeral = run_doc.ephemeral || {};
+  run_doc.ephemeral.token = data + '.' + btoa(String.fromCharCode(...new Uint8Array(sig)));
+  return run_doc;
+}"
+
+
+
 auth_adapter = {
   doctype: "Adapter",
   name: "auth-fsm-controller",
