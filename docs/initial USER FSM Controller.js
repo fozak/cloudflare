@@ -84,9 +84,7 @@ run_doc = {
         
         // Send verification email
         await CW.Adapter.email.sendVerification(run_doc);
-        
-        // Audit log
-        await CW.Adapter.audit.log(run_doc, 'user_activated');
+
       }"
   
   },

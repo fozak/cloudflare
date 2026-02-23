@@ -1,15 +1,67 @@
+
+run_doc
+/*Coworker Architecture Summary
+run_doc — universal execution context, single object passed everywhere:
+javascriptrun_doc = {
+  target,        // document being operated on
+  input,         // single mutation inlet (proxied)
+  query,         // read parameters (support, not mutated)
+  user,          // session from JWT (support, not mutated)
+  _oplog,        // audit trail
+  _running       // re-entry guard
+}
+run_doc.target — the document:
+javascripttarget.data[0]          // current document state
+target.data[0]._state   // FSM state history
+target.schema           // document schema
+input{} — single source of all mutations:
+javascriptinput = {
+  email: "x@x.com",     // data fields → target.data[0]
+  _state: {             // state transitions → target.data[0]._state
+    "1.0_1.Adapter.auth.signup": ""
+  }
+}
+Two parts of input:
+
+data keys — field mutations, merged into target.data[0], persisted to DB
+_state keys — transition intents, merged into target.data[0]._state, drive FSM
+
+_state role — universal observable for everything:
+javascript// format: "{dim}.{from}_{to}.{Adapter.name.fn}": "status"
+// status: "" intent, "1" success, "-1" error, "0" not started
+
+"0.0_1.HTTP.receive": "1"       // system pipeline
+"0.1_2.JWT.verify": "1"         // security gate
+"0.2_3.DB.persist": "1"         // persistence confirmed
+"1.0_1.Adapter.auth.signup": "1" // business transition
+"1.current": "1"                 // current state pointer
+Key high level points:
+
+Single inlet — proxy on input fires controller on every mutation, client and server share same controller code
+Controller is minimal — splits input, merges to target, stamps _state results, unified error catch, oplog. Never knows about business logic
+FSM routes by _state keys — parses dim.from_to.Adapter.name.fn, validates transition, calls adapter function, controller stamps result
+Adapters are isolated — never call each other, only read/write run_doc, controller sequences them
+_state is the log — full pipeline visibility, resumable, observable on client and server, no separate instrumentation needed
+DB boundary — serialize JSON fields on write, deserialize on read. Everything in memory is objects, DB stores strings
+Security in dimension 0 — "0.jwt_verified": "1" set by gateway only, gates all business transitions, never writable by client
+*/
+
 //VERSIONS
 /* 37 - new controller over CW.controller, just shallw observing the input 
 /* 38 - version to observe input and input._state 
 
 
-//TODO
+//SERVER-CLIENT
+
+// The goal is to have 99% processing made on client side
+// server side extract user from JWT, set verified = 1 -> go to persist()-> to db
+// 
 
 
 //CONTROLLER
 
 /* ISSUES
-TODO  ISSUE - SHALLOW observing input
+TODO  ISSUE - SHALLOW observing input - fixed by flattenning 
 TODO  ISSUE - validation calls back to react 
 TODO  DONOT forget _autosave = 0 on schema 
 
