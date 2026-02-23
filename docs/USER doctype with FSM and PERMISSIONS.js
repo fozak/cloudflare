@@ -1,4 +1,8 @@
-
+// to add Schema definition for virtual fields:
+javascript// User schema
+{ fieldname: "token", fieldtype: "Data", is_virtual: 1 }
+// verification_code is also virtual
+{ fieldname: "verification_code", fieldtype: "Data", is_virtual: 1 }
 
 //v2 
 

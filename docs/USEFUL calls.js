@@ -1,6 +1,21 @@
 TODO 
+await coworker.run({
+  operation: "create",
+  target_doctype: "User",
+  input: {
+    email: "test123@example.com",
+    first_name: "John Doe",
+  }
+});
 
 
+
+
+await coworker.run({
+  operation: "select",
+  from: "Schema",
+  view: "form",
+  query: { where: { schema_name: "User" } }}); 
 
 
 await coworker.run({
