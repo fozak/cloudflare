@@ -1,4 +1,93 @@
-//Adapter.http-gate
+
+
+
+
+//v3
+
+User Schema
+Added fields: _state (Code/JSON, hidden, read_only), verified (Check, default 0, hidden, read_only), tokenKey (Data, hidden, no_copy), token (Data, is_virtual), verification_code (Data, is_virtual), emailVisibility (Check), _allowed and _allowed_read changed from JSON to Code/JSON. Removed auth_status and email_status as separate fields — derived from _state["1.current"] and verified field respectively.
+Schema _state
+Flat key format replacing nested Frappe-style structure. Dimension 1 owns auth status FSM:
+json"1.name": "_auth_status",
+"1.values": [0, 1, 2, 3, 4],
+"1.options": ["Invited", "Active", "Locked", "Password Reset Pending", "Disabled"],
+"1.0_1.Adapter.auth.activate": "",
+"1.0_1.Adapter.email.send": "",
+"1.0_4.Adapter.auth.cancel": "",
+"1.1_2.Adapter.auth.lock": "",
+"1.1_3.Adapter.auth.resetPassword": "",
+"1.1_4.Adapter.auth.disable": "",
+"1.2_1.Adapter.auth.unlock": "",
+"1.3_1.Adapter.auth.completeReset": "",
+"1.4_1.Adapter.auth.enable": ""
+Adapter.email.send is follower to activate — same 0_1 transition, fires in parallel after owner succeeds.
+Permissions
+Combined old Frappe array format with new FSM format — _state nested inside each permission entry keyed by role:
+json"permissions": [
+  { "role": "System Manager", "create": 1, "write": 1, "_state": { "1.0_1.label": "Activate User", ... } },
+  { "role": "Self", "_state": { "1.1_3.label": "Reset My Password" } }
+]
+Adapter.auth
+Five functions:
+execute — verifies JWT, populates run_doc.user with { sub, name, _allowed_read, auth_status, verified }, stamps "0.1_2.JWT.verify": "1". No DB hit — self-contained token.
+verifyJWT — HMAC SHA-256 signature check + expiry check via Web Crypto API. Returns payload or null.
+base64UrlDecode — helper for JWT signature decoding.
+generateToken — builds JWT payload with sub, name, _allowed_read, auth_status from _state["1.current"], verified from field, exp +24h. Signs with HMAC SHA-256. Stores token on run_doc.user.token (virtual, never persisted).
+generateTokenKey — crypto.randomUUID() → run_doc.input.tokenKey. Called once at activation, not on every token generation. Rotating invalidates all sessions.
+Adapter.http-gateway
+Two functions:
+execute — normalizes request headers into run_doc.request = { ip, method, contentType, authorization }, checks IP rate limit, stamps "0.0_1.HTTP.receive": "1" or "-1".
+checkRateLimit — sliding window rate limiter using Map. Shared with no other adapter.
+tokenKey design
+Generated once at user activation via generateTokenKey. Stored in DB only, never in JWT payload. Rotating tokenKey in DB invalidates all active sessions without a blacklist. Same pattern as PocketBase.
+JWT payload design
+javascript{
+  sub: user.email,
+  name: user.name,
+  _allowed_read: ["System Manager"],
+  auth_status: user._state?.["1.current"],  // "0"-"4"
+  verified: user.verified || 0,              // 0 or 1
+  exp: now + 86400
+}
+No DB hit on verification — gateway checks auth_status and verified from token directly.
+CW.fsm
+Four methods:
+parseKey — parses "1.0_1.Adapter.auth.activate" → { dim: "1", from: "0", to: "1", adapter: "Adapter.auth.activate" }.
+resolveAdapter — resolves "Adapter.auth.activate" → CW.Adapter.auth.activate function reference.
+getSteps — finds all schema keys matching "dim.from_to.*" prefix — returns ordered array of steps for a transition.
+handle — main FSM loop:
+
+iterates input._state for intent keys ("")
+skips meta keys (parts.length < 3)
+validates dim.current === from
+owner = the requested key from input._state
+executes owner, stamps "1" on success
+commits dim.current = to
+fires all remaining schema steps for same transition in Promise.all() — followers are non-blocking, -1 on failure doesn't rollback state
+stamps -1 on owner failure, sets run_doc._error
+
+Key architectural decisions
+Single inlet — all mutations through run_doc.input, proxy fires CW.controller. Controller splits _state from data keys, FSM reads intents. Adapters never call each other — write back through run_doc. _state is the universal log — intent "", success "1", error "-1". First key in transition = owner, remaining schema keys = followers fired in parallel. State commits only on owner success. Followers are best-effort — email/SMS failure doesn't block auth state change.
+
+
+//end 
+https://claude.ai/chat/77fee0e9-2b7a-4e5c-8402-905c3f0b1a1d
+
+
+// 
+
+Based on what we've built and tested, logical next steps in order:
+
+Adapter.auth.signup — create user with hashed password, generate tokenKey, send verification code via Adapter.email
+Adapter.auth.signin — verify password, check auth_status, generate token
+Adapter.auth.activate — verify code, set verified=1, rotate tokenKey, transition _state["1.current"] = "1"
+Adapter.email — transport only, send(run_doc) reads verification_code virtual field, sends email
+Real hashPassword/verifyPassword — currently fake, needs bcrypt/argon2 (Web Crypto API has no bcrypt, need a lib or PBKDF2)
+
+Which do you want to start with?
+
+
+//Adapter.http-gate NOT current
 {
   "execute": "async function(run_doc) { const req = run_doc.request; if (!req) return run_doc; run_doc.request = { ip: req.headers?.get?.('CF-Connecting-IP') || req.ip, method: req.method, contentType: req.headers?.get?.('Content-Type'), authorization: req.headers?.get?.('Authorization') }; if (!this.checkRateLimit(`ip:${run_doc.request.ip}`, run_doc._rateLimits, this.config.rateLimit.requests, this.config.rateLimit.window)) { run_doc.input._state = { '0.0_1.HTTP.receive': '-1' }; run_doc._error = '429 Too Many Requests'; return run_doc; } run_doc.input._state = { '0.0_1.HTTP.receive': '1' }; return run_doc; }",
   "checkRateLimit": "function(key, rateLimits, max, windowMs) { const now = Date.now(); let times = rateLimits.get(key); if (!times) { times = []; rateLimits.set(key, times); } while (times.length > 0 && times[0] <= now - windowMs) { times.shift(); } if (times.length >= max) return false; times.push(now); return true; }"

@@ -1,3 +1,330 @@
+//  
+
+1. Bootstrap — who does raw fetch of Adapter documents before controller exists? What URL, what format, what if DB is down?
+2. Failure handling — '-1' stops pipeline. But which failures are blocking vs non-blocking? Defined on Adapter schema or hardcoded?
+3. Proxy double-fire — FSM writes run_doc._rawInput[key] = '1' directly, but Proxy wraps run_doc.input. Are they the same object? If yes, every FSM result stamp fires Proxy again.
+4. Child runs — run_doc.child() calls CW.controller. Does child inherit parent user, query, adapter context or starts fresh?
+5. CW.run backward compatibility — existing code calls CW.run(...). Does it become alias for CW.controller or is there a migration path?
+6. controllerLegacy — still referenced in _exec. Does it disappear entirely or stay as fallback during migration?
+7. init operation — who defines input._state for init? Is it hardcoded in bootstrap or comes from a config document?
+8. Adapter function naming — Adapter.pocketbase.select — is select always the same as operation? Or can adapter expose different function names?
+9. Error response shape — run_doc.error = e.message — what is the full error shape for HTTP response, UI rendering, child run handling?
+10. Run doctype schema — never formally defined. What are all valid fields on run_doc?questions
+
+
+// ============================================================
+// FULL MOCK TEST
+// ============================================================
+(async () => {
+
+globalThis.CW = globalThis.CW || {};
+
+// mock Schema
+CW.Schema = {
+  Adapter: {
+    pocketbase: { target_doctype: 'query' },
+    auth: { target_doctype: 'user' }
+  },
+  Task: {
+    fields: [
+      { fieldname: 'status', fieldtype: 'Data' },
+      { fieldname: 'title', fieldtype: 'Data' }
+    ]
+  }
+};
+
+// mock Adapter
+CW.Adapter = {
+  pocketbase: {
+    select: async function(run_doc) {
+      return { data: [{ doctype: 'Task', name: 'task-1', status: 'Open' }] };
+    }
+  },
+  auth: {
+    verify: async function(run_doc) {
+      return { email: 'john@example.com', name: 'john-123', roles: ['admin'] };
+    }
+  }
+};
+
+// generateId mock
+function generateId(prefix) {
+  return prefix + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+// _resolveInputKey
+CW._resolveInputKey = function(key, value, run_doc) {
+  if (key.startsWith('.')) {
+    run_doc[key.slice(1)] = value;
+    return;
+  }
+  const parts = key.split('.');
+  if (parts.length >= 3) {
+    run_doc._rawInput[key] = value;
+    return;
+  }
+  if (parts.length === 2) {
+    const [l1, l2] = parts;
+    run_doc[l1] = run_doc[l1] || {};
+    run_doc[l1][l2] = value;
+    return;
+  }
+  const schema = CW.Schema?.[run_doc.target_doctype];
+  if (schema?.fields?.some(f => f.fieldname === key)) {
+    run_doc._rawInput[key] = value;
+    return;
+  }
+  run_doc._custom = run_doc._custom || {};
+  run_doc._custom[key] = value;
+};
+
+// FSM
+CW.fsm = {
+  handle: async function(run_doc) {
+    for (const [key, value] of Object.entries(run_doc._rawInput)) {
+      if (!key.startsWith('Adapter.') || value !== '') continue;
+
+      const parts = key.split('.');
+      const name = parts[1];
+      const fn = parts[2];
+
+      const adapter = CW.Adapter?.[name];
+      if (!adapter?.[fn]) {
+        run_doc._rawInput[key] = '-1';
+        continue;
+      }
+
+      const adapterSchema = CW.Schema?.Adapter?.[name];
+      const targetField = adapterSchema?.target_doctype;
+
+      try {
+        const result = await adapter[fn](run_doc);
+        run_doc._rawInput[key] = '1';
+        if (targetField && result) {
+          run_doc[targetField] = run_doc[targetField] || {};
+          run_doc[targetField][`Adapter.${name}`] = result;
+        }
+      } catch(e) {
+        run_doc._rawInput[key] = '-1';
+        run_doc.error = e.message;
+        return;
+      }
+    }
+  }
+};
+
+// controller
+CW.controller = async function(op) {
+  const rawInput = {};
+
+  const run_doc = {
+    doctype: 'Run',
+    name: generateId('run'),
+    operation: op.operation,
+    target_doctype: op.target_doctype || null,
+    source_doctype: op.source_doctype || null,
+    query: op.query || {},
+    target: null,
+    user: null,
+    _custom: null,
+    child_run_ids: [],
+    status: 'running',
+    error: null,
+    _rawInput: rawInput,
+  };
+
+  // parse op.input keys
+  for (const [key, value] of Object.entries(op.input || {})) {
+    CW._resolveInputKey(key, value, run_doc);
+  }
+
+  // proxy — fires only on external single mutations
+  run_doc.input = new Proxy(rawInput, {
+    set(target, prop, value) {
+      target[prop] = value;
+      if (!run_doc._pending) {
+        run_doc._pending = true;
+        queueMicrotask(() => {
+          run_doc._pending = false;
+          CW.fsm.handle(run_doc);
+        });
+      }
+      return true;
+    }
+  });
+
+  // execute FSM
+  await CW.fsm.handle(run_doc);
+
+  run_doc.status = 'completed';
+  return run_doc;
+};
+
+// ============================================================
+// TEST
+// ============================================================
+const run = await CW.controller({
+  operation: 'select',
+  target_doctype: 'Task',
+  input: {
+    '.view': 'form',
+    'status': 'Open',
+    'user.email': 'john@example.com',
+    'Adapter.auth.verify': '',
+    'Adapter.pocketbase.select': ''
+  }
+});
+
+console.log('view:', run.view);
+console.log('status in rawInput:', run._rawInput.status);
+console.log('user.email (2-part):', run.user?.email);
+console.log('auth result:', run.user?.['Adapter.auth']);
+console.log('pocketbase result:', run.query?.['Adapter.pocketbase']);
+console.log('signals:', Object.fromEntries(
+  Object.entries(run._rawInput).filter(([k]) => k.startsWith('Adapter.'))
+));
+console.log('custom:', run._custom);
+
+})();
+
+
+
+
+
+
+//==============================================================
+Input — universal flat channel:
+
+javascript
+input = {
+  // 1-part: target_doctype schema field
+  'status': 'Open',
+  
+  // dot-prefix: run_doc direct field
+  '.view': 'form',
+  '.operation': 'select',
+  
+  // 2-part: run_doc path mutation
+  'user.email': 'john@example.com',
+  'query.where': { name: 'Task123' },
+  
+  // 3+ part: adapter intent/signal
+  'Adapter.http-gateway.parse': '',   // → '' pending, '1' success, '-1' fail
+  'Adapter.auth.verify': '',
+  'Adapter.pocketbase.select': '',
+}
+FSM executes intents sequentially, each adapter:
+
+Reads from input
+Executes
+Stamps result back: '' → '1' or '-1'
+Writes output to run_doc[target_doctype_lower]['Adapter.name']
+run_doc — progressively enriched:
+
+javascript
+run_doc = {
+  // core fields
+  operation: 'select',
+  target_doctype: 'Task',
+  view: 'form',
+  
+  // input — signals + field mutations
+  input: {
+    'Adapter.http-gateway.parse': '1',
+    'Adapter.auth.verify': '1',
+    'Adapter.pocketbase.select': '1',
+    'status': 'Open'
+  },
+  
+  // user — built by http-gateway + auth adapters
+  user: {
+    email: 'john@example.com',
+    name: 'john-123',
+    roles: ['admin'],
+    'Adapter.http-gateway': { ip: '1.2.3.4', method: 'POST' },
+    'Adapter.auth': { token: 'xxx', verified_at: 1234567890 }
+  },
+  
+  // query — built by db adapter
+  query: {
+    where: { name: 'Task123' },        // Prisma — immutable user intent
+    'Adapter.pocketbase': { filter: "doctype='Task' && data.name='Task123'" }
+  },
+  
+  // target — materialized by db adapter
+  target: {
+    data: [{ doctype: 'Task', name: 'Task123', status: 'Open' }],
+    'Adapter.pocketbase': { total: 1, page: 1 }
+  }
+}
+Adapter schema — defines where results land:
+
+javascript
+{ name: 'http-gateway', doctype: 'Adapter', target_doctype: 'User' }
+{ name: 'auth',         doctype: 'Adapter', target_doctype: 'User' }
+{ name: 'pocketbase',   doctype: 'Adapter', target_doctype: 'Query' }
+{ name: 'sqlite',       doctype: 'Adapter', target_doctype: 'Query' }
+Controller — minimal:
+
+javascript
+CW.controller = async function(op) {
+  const run_doc = { ...op, doctype: 'Run', name: generateId('run') };
+  await CW.fsm.handle(run_doc);
+  return run_doc;
+};
+FSM — reads input, routes to adapters, attaches results:
+
+javascript
+// for each intent in input with value ''
+// 1. parse key → adapter name + fn
+// 2. execute CW.Adapter[name][fn](run_doc)
+// 3. stamp result '1' or '-1'
+// 4. attach output to run_doc[target_doctype_lower]['Adapter.name']
+Single pipeline. No special cases. Everything flows through input. run_doc is fully auditable at any point.
+
+
+
+
+
+
+
+CW.run(op)
+    ↓
+bare run_doc created
+input = new Proxy({}, { set → queueMicrotask(controller) })
+    ↓
+initial input stamped:
+run_doc.input._state = { "Adapter.pocketbase.select": "" }
+run_doc.input.status = "Open"  // from op.input
+    ↓ (queueMicrotask fires once after all sync mutations)
+CW.controller(run_doc)
+    ↓
+pre-flight: parse input keys
+  1-part schema field    → stays in input (document delta)
+  1-part run_doc field   → run_doc[key] = value
+  2-part                 → run_doc[l1][l2] = value
+  3+ part / _state       → input._state[key]? 
+    ↓
+FSM.handle(run_doc)
+  reads input._state keys
+  resolves adapter + fn from key
+  calls CW.Adapter[name][fn](run_doc)
+    ↓
+adapter executes:
+  materializes run_doc.target (select)
+  enriches run_doc.user (auth)
+  enriches run_doc.query (db)
+    ↓
+handler: view-filter run_doc.target.data
+    ↓
+post-flight:
+  run_doc.status = "completed"
+  CW._render(run_doc)
+  CW._updateFromRun(run_doc)
+    ↓
+return run_doc
+
+
 
 run_doc
 /*Coworker Architecture Summary

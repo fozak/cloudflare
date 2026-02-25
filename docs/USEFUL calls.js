@@ -1,4 +1,79 @@
 TODO 
+
+//
+
+const blob = new Blob(
+  [JSON.stringify(CW._configconfig, null, 2)],
+  { type: "application/json" }
+);
+
+const a = document.createElement("a");
+a.href = URL.createObjectURL(blob);
+a.download = "config.json";
+a.click();
+URL.revokeObjectURL(a.href);
+
+
+//
+
+all = await coworker.run({
+  operation: "select",
+  source_doctype: "All",
+  view: "form",
+});
+//then export
+const blob = new Blob(
+  [JSON.stringify(all.target.data, null, 2)],
+  { type: "application/json" }
+);
+
+const a = document.createElement("a");
+a.href = URL.createObjectURL(blob);
+a.download = "export.json";
+a.click();
+URL.revokeObjectURL(a.href);
+
+//====
+
+source_doctype: "All"
+//1
+
+const userRun = await coworker.run({
+  operation: "takeone",
+  target_doctype: "User",
+  query: { where: { first_name: "John Doe"} }
+});
+
+// 2. set state and generate token
+userRun.target.data[0]._allowed_read = ["System Manager"];
+userRun.target.data[0]._state = { "1.current": "1" };
+userRun.target.data[0].verified = 1;
+
+await CW.Adapter.auth.generateToken(userRun);
+console.log("token:", userRun.user.token);
+
+// 3. decode and check
+const parts = userRun.user.token.split('.');
+const payload = JSON.parse(atob(parts[1]));
+console.log("payload:", payload);
+
+// 4. verify token
+userRun.request = { authorization: 'Bearer ' + userRun.user.token };
+await CW.Adapter.auth.execute(userRun);
+console.log("user:", userRun.user);
+console.log("_state:", userRun.input._state);
+await coworker.run({
+  operation: "create",
+  target_doctype: "User",
+  input: {
+    email: "test123@example.com",
+    first_name: "John Doe",
+  }
+});
+
+
+//====================================================
+
 await coworker.run({
   operation: "create",
   target_doctype: "User",

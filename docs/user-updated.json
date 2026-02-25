@@ -4,30 +4,19 @@
 {
     "_schema_doctype": "User",
     "_state": {
-        "1.name": "_auth_status",
-        "1.values": [
-            0,
-            1,
-            2,
-            3,
-            4
-        ],
-        "1.options": [
-            "Invited",
-            "Active",
-            "Locked",
-            "Password Reset Pending",
-            "Disabled"
-        ],
-        "1.0_1.Adapter.auth.activate": "",
-        "1.0_4.Adapter.auth.cancel": "",
-        "1.1_2.Adapter.auth.lock": "",
-        "1.1_3.Adapter.auth.resetPassword": "",
-        "1.1_4.Adapter.auth.disable": "",
-        "1.2_1.Adapter.auth.unlock": "",
-        "1.3_1.Adapter.auth.completeReset": "",
-        "1.4_1.Adapter.auth.enable": ""
-    },
+    "1.name": "_auth_status",
+    "1.values": [0, 1, 2, 3, 4],
+    "1.options": ["Invited", "Active", "Locked", "Password Reset Pending", "Disabled"],
+    "1.0_1.Adapter.auth.activate": "",
+    "1.0_1.Adapter.email.send": "",
+    "1.0_4.Adapter.auth.cancel": "",
+    "1.1_2.Adapter.auth.lock": "",
+    "1.1_3.Adapter.auth.resetPassword": "",
+    "1.1_4.Adapter.auth.disable": "",
+    "1.2_1.Adapter.auth.unlock": "",
+    "1.3_1.Adapter.auth.completeReset": "",
+    "1.4_1.Adapter.auth.enable": ""
+},
     "actions": [],
     "allow_import": 1,
     "allow_rename": 1,
