@@ -1,4 +1,12 @@
-TODO 
+//
+
+node --experimental-repl-await
+Then manually run your bootstrap:
+javascript
+
+await import('./index.js')
+Object.keys(globalThis.Adapter)
+globalThis.CW._config
 
 //
 
