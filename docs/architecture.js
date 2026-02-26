@@ -1,3 +1,99 @@
+
+
+ const run_doc = {
+          // Frappe standard fields
+          doctype: "Run",
+          name: generateId("run"),
+          creation: start,   
+          modified: start,
+          operation_key: JSON.stringify(op), //KEEP added operation_key KEEP IT
+          modified_by: resolved.owner || "system",
+          docstatus: 0,
+          owner: resolved.owner || "system",
+
+          //compatibility with univeral doctype like Adapter
+          config: op.config || {}, // KEEP iT
+          functions: op.functions || {}, // KEEP it
+
+          // Operation definition
+          operation: resolved.operation,
+          operation_original: op.operation,
+          source: op.source || null, // ADDED for the future
+          source_doctype: resolved.source_doctype,
+          target: op.target || null, // ADDED 
+          target_doctype: resolved.target_doctype,
+
+          // UI/Rendering (explicit takes priority over resolved)
+          view: "view" in op ? op.view : resolved.view,
+          component: "component" in op ? op.component : resolved.component,
+          container: "container" in op ? op.container : resolved.container,
+
+          // DATA - Delta architecture
+          query: op.query || {},    
+          input: op.input || {},
+          target: null,
+
+          // Execution state
+          _state: {}, //ADDED for the future
+          status: "running",
+          success: false,
+          error: null,
+          duration: 0,  //TO DELETE
+
+          // Hierarchy
+          parent_run_id: mergedOptions.parentRunId || null, //KEEP
+          child_run_ids: [], //KEEP
+
+          // Flow context   //DELETE
+          flow_id: op.flow_id || null, //DELETE
+          flow_template: op.flow_template || null, //DELETE
+          step_id: op.step_id || null, //DELETE
+          step_title: op.step_title || null, //DELETE
+
+          // Authorization
+          agent: op.agent || null, //DELETE - now user
+
+          // Options
+          options: mergedOptions, //DELETE we use input long .keys for this
+
+          // Runtime helpers
+          child: null, //keep
+
+
+
+
+CW.controller = async function(payload, input = {}) {
+  if (payload instanceof Request) {
+    const guard = await CW.Adapter[CW._config.adapters.defaults.http].execute(payload); 
+    if (guard.error) return guard;  //should defend first
+  }
+  
+  const run_doc = CW._buildRun({ operation: 'create', target_doctype: 'Run', input: payload });
+  await CW.fsm.handle(run_doc);
+  return run_doc;
+};
+
+
+
+// version 0
+
+CW.controller = async function(payload) {
+  if (payload instanceof Request) { 
+    //<-- 1. here run_doc should BE created  as Adapter works with run_doc
+    await CW.Adapter[CW._config.adapters.defaults.http].execute(payload);
+  } else if (payload.doctype !== 'Run') {
+    //<-2. this op = {operation: 'update', target_doctype: 'Task', input: {...}} ?
+  } else {
+    // 3 payload is existing run_doc?, input mutated via proxy
+    
+  }
+  await CW.fsm.handle(payload);
+  return payload;
+};
+
+
+
+
 //  
 
 1. Bootstrap — who does raw fetch of Adapter documents before controller exists? What URL, what format, what if DB is down?
