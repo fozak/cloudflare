@@ -1,4 +1,38 @@
+//not implemented
 
+We need CW._resolveInputKey — the function that processes each input key type:
+javascriptCW._resolveInputKey = function(key, value, run_doc) {
+  if (key.startsWith('.')) {
+    // dot-prefix → direct run_doc field
+    run_doc[key.slice(1)] = value;
+  } else if (key.startsWith('Adapter.')) {
+    // adapter intent — FSM handles these
+  } else if (key.includes('.')) {
+    // deep path → run_doc nested field
+    const [root, ...rest] = key.split('.');
+    run_doc[root] = run_doc[root] || {};
+    run_doc[root][rest.join('.')] = value;
+  } else {
+    // schema field → goes to input as-is
+  }
+};
+And controller must call this on every proxy wake before FSM runs. Agree?why not just run_doc is arg. we assume we have all keys including adapter key inside. Assume that Adapter.name.target_doctype for schema extraction2:52 PMYes — _resolveInputKey just iterates all run_doc.input keys and resolves them into run_doc:
+javascriptCW._resolveInput = function(run_doc) {
+  for (const [key, value] of Object.entries(run_doc.input)) {
+    if (key.startsWith('.')) {
+      run_doc[key.slice(1)] = value;
+    } else if (key.startsWith('Adapter.')) {
+      // FSM handles these
+    } else if (key.includes('.')) {
+      const [root, ...rest] = key.split('.');
+      run_doc[root] = run_doc[root] || {};
+      run_doc[root][rest.join('.')] = value;
+    }
+    // plain field — stays in input for schema processing
+  }
+};
+
+///=====================================================
 
  const run_doc = {
           // Frappe standard fields

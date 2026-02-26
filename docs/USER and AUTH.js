@@ -1,3 +1,6 @@
+
+//decided to merge adapters 
+
 //v4
 
 async function execute(payload, run_doc) {
