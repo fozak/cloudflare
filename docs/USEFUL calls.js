@@ -1,3 +1,5 @@
+await import('./CW-utils.js')
+
 //
 
 node --experimental-repl-await
