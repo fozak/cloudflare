@@ -45,7 +45,7 @@ javascriptCW._resolveInputKey = function(key, value, run_doc) {
   }
 };
 And controller must call this on every proxy wake before FSM runs. Agree?why not just run_doc is arg. we assume we have all keys including adapter key inside. Assume that Adapter.name.target_doctype for schema extraction2:52 PMYes — _resolveInputKey just iterates all run_doc.input keys and resolves them into run_doc:
-javascriptCW._resolveInput = function(run_doc) {
+javascript CW._resolveInput = function(run_doc) {
   for (const [key, value] of Object.entries(run_doc.input)) {
     if (key.startsWith('.')) {
       run_doc[key.slice(1)] = value;
