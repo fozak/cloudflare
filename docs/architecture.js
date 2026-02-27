@@ -1,4 +1,32 @@
 //not implemented
+//
+
+//1. CW.controller(payload) — main entry point for all operations, called by UI and Adapters. Payload can be raw input or existing run_doc (for child runs).
+//[Payload] object of ether httpRequest OR {} if 2 types has doctype.Run or not have it
+// 1) if httpRequest -> payload parced with default Adapter for http (defined in config), 
+// 2) if doctype.Run -> payload is existing run_doc, just shallow observed for input mutations
+// 3) if !doctype.Run -> payload is raw input, will be transformed into run_doc with doctype.Run and observed for input mutations 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 We need CW._resolveInputKey — the function that processes each input key type:
 javascriptCW._resolveInputKey = function(key, value, run_doc) {
