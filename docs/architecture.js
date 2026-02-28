@@ -130,7 +130,7 @@ CW.controller = async function(payload, input = {}) {
     if (guard.error) return guard;  //should defend first
   }
   
-  const run_doc = CW._buildRun({ operation: 'create', target_doctype: 'Run', input: payload });
+  const run_doc = CW.run({ operation: 'create', target_doctype: 'Run', input: payload });
   await CW.fsm.handle(run_doc);
   return run_doc;
 };
