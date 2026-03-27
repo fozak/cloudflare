@@ -61,7 +61,8 @@ _allowed_read = User capabilities (what roles/permissions this user possesses)
 
 Access Control Rules
 ViewRule (Read Access)
-javascriptowner = @request.auth.id ||
+javascript
+owner = @request.auth.id ||
 _allowed_read:each ?~ 'roleispublic' ||
 @request.auth.item_via_user_id._allowed_read:each ?= _allowed:each ||
 @request.auth.item_via_user_id._allowed_read:each ?= _allowed_read:each

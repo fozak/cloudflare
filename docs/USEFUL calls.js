@@ -1,3 +1,41 @@
+ssh-keygen -t ed25519 -C "i771468@gmail.com" 
+
+/root/pb/pocketbase superuser create i771468@gmail.com password
+
+
+
+
+const userId = "user0123456789y"; // your semantic id, exactly 15 chars
+
+// 1. create auth user with your id
+const pbUser = await pb.collection("users").create({
+  id: userId,
+  email: "denis3@exponanta.com",
+  password: "password123",
+  passwordConfirm: "password123"
+});
+
+// 2. create item record with same id, then self-reference
+await pb.collection("item").create({
+  id: userId,
+  name: userId,
+  doctype: "User",
+  owner: "",
+  _allowed: [],
+  _allowed_read: [],
+  data: { doctype: "User", name: userId, email: "denis1@exponanta.com" }
+});
+
+await pb.collection("item").update(userId, {
+  _allowed_read: [userId]
+});
+
+console.log("done:", userId);
+
+
+
+
+//----
 await import('./CW-utils.js')
 
 //
