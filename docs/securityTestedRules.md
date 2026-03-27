@@ -63,7 +63,126 @@ Solid. Well done getting through this — it was a long road but the architectur
 
 
 
+// test 
 
+async function testFullRBAC() {
+  const results = [];
+  const expect = (label, condition) => {
+    results.push({ label, pass: condition ? '✅' : '❌' });
+  };
+  const ids = (list) => list.map(r => r.id);
+
+  const tryUpdate = async (id, data) => {
+    try { await pb.collection('item').update(id, data); return true; }
+    catch { return false; }
+  };
+  const tryDelete = async (id) => {
+    try { await pb.collection('item').delete(id); return true; }
+    catch { return false; }
+  };
+  const tryCreate = async (data) => {
+    try { await pb.collection('item').create(data); return true; }
+    catch { return false; }
+  };
+
+  // ============================================================
+  // SECTION 1 — Guest read
+  // ============================================================
+  pb.authStore.clear();
+  const guest = await pb.collection('item').getList(1, 100);
+  const guestIds = ids(guest.items);
+  expect('Guest sees public', guestIds.includes('eventpublictes1'));
+  expect('Guest NOT sees event26032tb3b6', !guestIds.includes('event26032tb3b6'));
+  expect('Guest NOT sees Jane', !guestIds.includes('user1q3flf1q3fl'));
+
+  // ============================================================
+  // SECTION 2 — Guest create
+  // ============================================================
+  expect('Guest CANNOT create User doctype', !(await tryCreate({
+    id: 'guestcreatetes1', name: 'guestcreatetes1',
+    doctype: 'User', docstatus: 0, data: {},
+    _allowed: ['rolesystemmanag'], _allowed_read: []
+  })));
+  expect('Guest CAN create Event doctype', await tryCreate({
+    id: 'guestcreatetes1', name: 'guestcreatetes1',
+    doctype: 'Event', docstatus: 0, data: { title: 'Guest Event' },
+    _allowed: [], _allowed_read: []
+  }));
+
+  // ============================================================
+  // SECTION 3 — Jane read
+  // ============================================================
+  await authLogin('test6@exponanta.com', 'test6@exponanta.com');
+  const jane = await pb.collection('item').getList(1, 100);
+  const janeIds = ids(jane.items);
+  expect('Jane sees public (#1)', janeIds.includes('eventpublictes1'));
+  expect('Jane sees own record (#2)', janeIds.includes('user1q3flf1q3fl'));
+  expect('Jane sees owner event (#3)', janeIds.includes('eventownertest1'));
+  expect('Jane sees direct edit event (#4)', janeIds.includes('eventallowtest1'));
+  expect('Jane sees direct read event (#5)', janeIds.includes('eventreadtest01'));
+  expect('Jane sees role edit event (#6)', janeIds.includes('eventroleedit01'));
+  expect('Jane sees role read event (#7)', janeIds.includes('event26032tb3b6'));
+
+  // ============================================================
+  // SECTION 4 — Jane update
+  // ============================================================
+  expect('Jane CAN update owner event', await tryUpdate('eventownertest1', { data: { title: 'updated' } }));
+  expect('Jane CAN update allowed event', await tryUpdate('eventallowtest1', { data: { title: 'updated' } }));
+  expect('Jane CAN update role event', await tryUpdate('eventroleedit01', { data: { title: 'updated' } }));
+  expect('Jane CANNOT update deny event', !(await tryUpdate('evntupddeny0100', { data: { title: 'updated' } })));
+
+  // ============================================================
+  // SECTION 5 — Jane cannot change doctype
+  // ============================================================
+  expect('Jane CANNOT change doctype', !(await tryUpdate('eventallowtest1', { doctype: 'User' })));
+
+  // ============================================================
+  // SECTION 6 — Jane cannot self-assign role on User record
+  // ============================================================
+  expect('Jane CANNOT change own _allowed_read', !(await tryUpdate('user1q3flf1q3fl', { _allowed_read: ['user1q3flf1q3fl', 'rolesystemmanag'] })));
+
+  // ============================================================
+  // SECTION 7 — Hacker self-provisioning attack
+  // ============================================================
+  pb.authStore.clear();
+  await authLogin('hacker2@test.com', 'hacker2test123');
+
+  // Delete existing hacker item if exists
+  try { await pb.collection('item').delete('hackrjohndoe02x'); } catch {}
+
+  expect('Hacker CANNOT create User with role in _allowed_read', !(await tryCreate({
+    id: 'hackrjohndoe02x', name: 'hackrjohndoe02x',
+    doctype: 'User', docstatus: 0, data: {},
+    _allowed: ['rolesystemmanag'], _allowed_read: ['rolesystemmanag']
+  })));
+  expect('Hacker CANNOT set _allowed to own id', !(await tryCreate({
+    id: 'hackrjohndoe02x', name: 'hackrjohndoe02x',
+    doctype: 'User', docstatus: 0, data: {},
+    _allowed: ['hackrjohndoe02x'], _allowed_read: []
+  })));
+  expect('Hacker CAN create legitimate User record', await tryCreate({
+    id: 'hackrjohndoe02x', name: 'hackrjohndoe02x',
+    doctype: 'User', docstatus: 0, data: {},
+    _allowed: ['rolesystemmanag'], _allowed_read: []
+  }));
+  expect('Hacker CANNOT update own _allowed_read', !(await tryUpdate('hackrjohndoe02x', {
+    _allowed_read: ['rolesystemmanag']
+  })));
+  expect('Hacker CANNOT change doctype to User', !(await tryUpdate('guestcreatetes1', { doctype: 'User' })));
+
+  const hackerResult = await pb.collection('item').getList(1, 100);
+  const hackerIds = ids(hackerResult.items);
+  expect('Hacker sees only public + own', hackerResult.totalItems <= 2);
+  expect('Hacker NOT sees Jane', !hackerIds.includes('user1q3flf1q3fl'));
+  expect('Hacker NOT sees role event', !hackerIds.includes('event26032tb3b6'));
+
+  // ============================================================
+  // RESULTS
+  // ============================================================
+  console.table(results);
+}
+
+await testFullRBAC();
 
 
 
