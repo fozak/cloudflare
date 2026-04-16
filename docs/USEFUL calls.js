@@ -1,4 +1,18 @@
-ssh-keygen -t ed25519 -C "i771468@gmail.com" 
+ct grid
+  const grid = CW.run({
+    operation: 'select',
+    target_doctype: 'Project',
+    query: { take: 10 },
+    view: 'list',
+    component: 'MainGrid',
+    container: 'main_container',
+    options: { render: true },
+  });
+
+  
+
+
+1468@gmail.com" 
 
 /root/pb/pocketbase superuser create i771468@gmail.com password
 
