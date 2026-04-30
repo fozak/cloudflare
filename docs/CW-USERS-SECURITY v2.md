@@ -534,3 +534,219 @@ async function(run_doc) {
 | Attendee `1→2` → guestId removed from `Event._allowed_read` | ✅ |
 | Has Role `0→1` → roleId in `User._allowed_read` | ✅ |
 | Editor `0→1` → userId in `User._allowed` | ✅ |
+
+
+
+ACL Roles — Where They Live
+Role IDs
+RoleIDMeaningroleispublixxxxhardcodedEveryone including unauthenticatedroleallxxxxxxxxhardcodedAll authenticated usersrolesystemmanaggeneratedSystem Managerroleprojecuserxgenerated via generateId('Role', 'Projects User')Any named role
+
+Where set in Schema
+schema.is_public: 1 → roleispublixxxx added to _allowed_read on create:
+json{ "schema_name": "UserPublicProfile", "is_public": 1 }
+schema.permissions → roles iterated on create → write roles to _allowed, read-only roles to _allowed_read:
+json"permissions": [
+  { "role": "Projects User", "write": 1, "create": 1 },
+  { "role": "Projects Manager", "read": 1 }
+]
+roleallxxxxxxxx → set via schema.permissions with role: "All":
+json{ "role": "All", "read": 1 }
+generateId('Role', 'All') = roleallxxxxxxxx
+
+Where set in Code — CW._config.systemFields
+systemFields._allowed.onCreate
+  ← iterates schema.permissions write/create roles → generateId → _allowed
+  ← adds doc.owner → _allowed
+
+systemFields._allowed_read.onCreate
+  ← iterates schema.permissions read-only roles → generateId → _allowed_read
+  ← schema.is_public → pushes 'roleispublixxxx' → _allowed_read
+
+PB Filter Rule
+_allowed_read ?~ "roleispublixxxx"     ← public, no auth needed
+|| (
+  @request.auth.id != "" && (
+    id = @request.auth.id              ← own record
+    || owner = @request.auth.id        ← owner
+    || _allowed ?~ @request.auth.id    ← explicit user write access
+    || _allowed_read ?~ @request.auth.id  ← explicit user read access
+    || _allowed ?~ item_users.role_id  ← role write access
+    || _allowed_read ?~ item_users.role_id  ← role read access
+  )
+)
+
+Flow Summary
+Schema definition
+  is_public: 1          → roleispublixxxx → _allowed_read
+  permissions[].role    → generateId()    → _allowed (write)
+                                          → _allowed_read (read-only)
+  role: 'All'           → roleallxxxxxxxx → _allowed_read
+
+onCreate (CW._config.systemFields)
+  _allowed.onCreate     → roles + owner
+  _allowed_read.onCreate → roles + is_public flag
+
+PB record saved
+  _allowed: ['roleprojecuserx', 'ownerUserId']
+  _allowed_read: ['roleispublixxxx', 'roleallxxxxxxxx']
+
+PB filter rule
+  enforces at query time
+
+{
+  name: '_allowed', fetch: true,
+  onWrite: (run_doc) => {
+    const doc    = run_doc.target?.data?.[0];
+    if (!doc) return;
+    const schema     = CW.Schema?.[run_doc.target_doctype];
+    const linkFields = (schema?.fields || []).filter(f => f.fieldtype === 'Link');
+    const hasParent  = !!(doc.parent && doc.parenttype);
+    const hasLinks   = linkFields.some(f => doc[f.fieldname]);
+    if (!hasParent && !hasLinks && run_doc.operation !== 'create') return;
+
+    const roles = (schema?.permissions || [])
+      .filter(p => p.role && (p.write === 1 || p.create === 1))
+      .map(p => generateId('Role', p.role));
+    if (doc.owner) roles.push(doc.owner);
+
+    if (hasParent) {
+      const parentRun = CW.runs[run_doc.parent_run_id];
+      const p = parentRun?.target?.data?.[0];
+      if (p?._allowed) roles.push(...p._allowed);
+    }
+
+    for (const f of linkFields) {
+      const linked = Object.values(CW.runs).find(r =>
+        r.target_doctype === f.options &&
+        r.target?.data?.[0]?.name === doc[f.fieldname]
+      )?.target?.data?.[0];
+      if (linked?._allowed) roles.push(...linked._allowed);
+    }
+
+    doc._allowed = [...new Set([...(doc._allowed || []), ...roles])];
+
+    // Relationship → patch related document _allowed
+    if (run_doc.target_doctype === 'Relationship' && doc.related_name && doc.related_doctype) {
+      const parentRun = CW.runs[run_doc.parent_run_id];
+      const parentDoc = parentRun?.target?.data?.[0];
+      if (parentDoc) {
+      run_doc.child({
+          operation:      'update',
+          target_doctype: doc.related_doctype,
+          query:          { where: { name: doc.related_name } },
+          input:          { _allowed: [...new Set([...(parentDoc._allowed || [])])] },
+          options:        { render: false, internal: true },
+        });
+      }
+    }
+  },
+},
+{
+  name: '_allowed_read', fetch: true,
+  onWrite: (run_doc) => {
+    const doc    = run_doc.target?.data?.[0];
+    if (!doc) return;
+    const schema     = CW.Schema?.[run_doc.target_doctype];
+    const linkFields = (schema?.fields || []).filter(f => f.fieldtype === 'Link');
+    const hasParent  = !!(doc.parent && doc.parenttype);
+    const hasLinks   = linkFields.some(f => doc[f.fieldname]);
+    if (!hasParent && !hasLinks && run_doc.operation !== 'create') return;
+
+    const roles = (schema?.permissions || [])
+      .filter(p => p.role && p.read === 1 && !(p.write === 1 || p.create === 1))
+      .map(p => generateId('Role', p.role));
+    if (schema?.is_public && !roles.includes('roleispublixxxx'))
+      roles.push('roleispublixxxx');
+
+    if (hasParent) {
+      const parentRun = CW.runs[run_doc.parent_run_id];
+      const p = parentRun?.target?.data?.[0];
+      if (p?._allowed_read) roles.push(...p._allowed_read);
+    }
+
+    for (const f of linkFields) {
+      const linked = Object.values(CW.runs).find(r =>
+        r.target_doctype === f.options &&
+        r.target?.data?.[0]?.name === doc[f.fieldname]
+      )?.target?.data?.[0];
+      if (linked?._allowed_read) roles.push(...linked._allowed_read);
+    }
+
+    doc._allowed_read = [...new Set([...(doc._allowed_read || []), ...roles])];
+
+    // Relationship → patch related document _allowed_read
+    if (run_doc.target_doctype === 'Relationship' && doc.related_name && doc.related_doctype) {
+      const parentRun = CW.runs[run_doc.parent_run_id];
+      const parentDoc = parentRun?.target?.data?.[0];
+      if (parentDoc) {
+        run_doc.child({
+          operation:      'update',
+          target_doctype: doc.related_doctype,
+          query:          { where: { name: doc.related_name } },
+          input:          { _allowed_read: [...new Set([...(parentDoc._allowed_read || [])])] },
+          options:        { render: false, internal: true },
+        });
+      }
+    }
+  },
+},
+
+
+
+
+  //--inheritance
+
+ACL Propagation — Document & Code Reference
+Overview
+_allowed and _allowed_read on every document are computed from four sources, merged at write time. All managed in CW._config.systemFields._allowed.onWrite and ._allowed_read.onWrite.
+
+Sources of ACL
+SourceTriggerDirectionSchema permissionsevery create/update with referenceschema → docownerevery createcurrent user → docparent/parenttypedoc has parent field setparent → childLink fielddoc has Link field with valuelinked doc → current docRelationship createRelationship doctype createdparent → related docis_public: 1every create/update with referenceschema flag → roleispublixxxx
+
+By fieldtype
+Schema permissions — all doctypes on create:
+schema.permissions[].role (write/create) → generateId → _allowed
+schema.permissions[].role (read only)    → generateId → _allowed_read
+schema.is_public                         → roleispublixxxx → _allowed_read
+owner — all doctypes on create:
+doc.owner → _allowed
+Table children — child records with parent/parenttype:
+parent doc._allowed      → child._allowed      (via parent_run_id)
+parent doc._allowed_read → child._allowed_read  (via parent_run_id)
+Link fields — when linked doc is in CW.runs:
+linked doc._allowed      → current doc._allowed
+linked doc._allowed_read → current doc._allowed_read
+Relationship doctype — two propagations on create:
+
+Relationship inherits parent ACL via parent/parenttype (same as Table child)
+Related document (related_name/related_doctype) gets parent ACL patched in via fire-and-forget child update
+
+
+Guard — when onWrite fires
+jsconst hasParent = !!(doc.parent && doc.parenttype);
+const hasLinks  = linkFields.some(f => doc[f.fieldname]);
+if (!hasParent && !hasLinks && run_doc.operation !== 'create') return;
+Fires on:
+
+create — always
+update — only when parent/parenttype or any Link field is set on doc
+
+Skips:
+
+Pure field updates (subject, description, etc.) with no reference fields
+FSM signal updates
+_allowed/_allowed_read patches to unrelated documents
+
+
+Where in code
+CW._config.systemFields — two handlers:
+_allowed.onWrite     → schema write roles + owner + parent + Link + Relationship patch
+_allowed_read.onWrite → schema read roles + is_public + parent + Link + Relationship patch
+CW.runs[parent_run_id] — parent ACL read from run tree, not from PB. Guarantees the latest in-memory ACL is used.
+Object.values(CW.runs).find() — Link field and Relationship related doc lookup. Only works if linked doc was loaded in the same session — by design, since UI always loads linked docs before referencing them.
+
+What is NOT propagated automatically
+
+Cascade on ACL change — if parent's _allowed changes after children exist, existing children are not updated. Only new creates/updates inherit the new ACL.
+Relationship cancel/revoke — removing related_name from parent ACL on Relationship FSM 1→2 Cancel is handled by existing Relationship sideEffects (separate mechanism, not yet refactored from old pattern).
+Dynamic Link — treated same as Link but options is determined at runtime from another field — currently not resolved in onWrite.
