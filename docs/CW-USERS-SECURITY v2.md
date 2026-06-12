@@ -1,3 +1,136 @@
+POTENTIAL TODO 
+
+Found the key discussion. From that chat the agreed pattern was:
+schema.permissions carries FSM transition access per role:
+json"permissions": [
+  { "role": "Projects User",   "1.0_1": 1 },
+  { "role": "Projects Manager", "1.1_2": 1, "1.1_3": 1 }
+]
+_handleSignal checks run_doc.user roles against permissions:
+Before firing any transition — check if the user's roles include a permission entry that allows this signal. If not → _failSignal('Not authorized').
+_getTransitions filters by user role for UI:
+Already partially implemented — labelOverrides reads permissions.transitions for display. The missing part is actually filtering out transitions the user's role can't fire — not just relabeling them.
+So the full picture:
+
+_allowed — PocketBase gate: can this user touch the document at all
+permissions[role].signal — pipeline gate: can this user fire this specific signal
+docstatus + allow_on_submit — field gate: can this user change this field
+
+Three independent layers. Role-based FSM gating closes the gap between flat _allowed and role-aware transitions.You said: this is the best way of intersecting roles and FSM (in schema), but is this difficultthis is the best way of intersecting roles and FSM (in schema), but is this difficult1:19 PMClaude responded: No.No. Looking at your current _getTransitions:
+javascriptconst currentUserId = CW._config?.currentUser?.id || "";
+const isSelf = !!(currentUserId && (doc.name === currentUserId || doc.owner === currentUserId));
+const labelOverrides = {};
+for (const p of schema.permissions || []) {
+  if (p.role === "Self" && !isSelf) continue;
+  for (const [signal, label] of Object.entries(p.transitions || {})) {
+    if (signal.startsWith(dim + ".")) labelOverrides[signal] = label;
+  }
+}
+It already iterates schema.permissions and checks Self. The only missing piece is filtering by user's actual roles.
+The change is minimal — build a set of allowed signals for the current user's roles, then filter transitions against it:
+javascriptconst userRoles = new Set(run_doc.user?._allowed_read || []);
+const allowedSignals = new Set();
+
+for (const p of schema.permissions || []) {
+  if (p.role === 'Self' && !isSelf) continue;
+  if (p.role !== 'Self' && !userRoles.has(p.role)) continue;
+  for (const key of Object.keys(p)) {
+    if (key.includes('.')) allowedSignals.add(key); // signal keys contain '.'
+  }
+}
+Then in the .map() — if allowedSignals.size > 0 and signal not in allowedSignals → return null.
+If allowedSignals is empty (no role-based permissions defined) — all transitions allowed as before. Backward compatible.
+Same check in _handleSignal for server-side enforcement.
+
+
+OPEN ISSUE
+
+do i make user rather _allowed. then every user from _allowed can change _state and then any other field, how then we protect in docstatus:1 NOT to change fields while keeping _state updatable
+
+12:53 PM
+Claude responded: From prior discussions — the key pattern is:
+
+Relevant chats
+Relevant chats
+From prior discussions — the key pattern is:
+
+_allowed controls who can write to the document. But _state must always be writable by anyone in _allowed regardless of docstatus.
+
+The resolution from that earlier discussion:
+
+_state is exempt from docstatus field protection because FSM transitions ARE the mechanism that changes docstatus. Blocking _state writes when docstatus = 1 would make it impossible to Cancel or Amend — which requires firing a signal that transitions docstatus from 1 → 2.
+
+So the rule is:
+
+docstatus = 0  → all fields writable (for users in _allowed)
+docstatus = 1  → only _state writable + fields with allow_on_submit: 1
+docstatus = 2  → only _state writable (for amend signal)
+In CW.controller — before _mergeInput:
+
+javascript
+if (doc.docstatus > 0 && schema?.is_submittable) {
+  for (const [k] of Object.entries(run_doc.input)) {
+    if (k === '_state') continue;  // always allowed
+    const field = schema.fields?.find(f => f.fieldname === k);
+    if (!field?.allow_on_submit) delete run_doc.input[k];  // strip protected fields
+  }
+}
+_state is never stripped. All other fields stripped unless allow_on_submit: 1. Users in _allowed can always fire FSM signals — field data changes are gated by docstatus.
+
+You said: so its on controller level.
+so its on controller level. but then user can directly do pb update(
+
+12:54 PM
+Claude responded: Yes.
+Yes. PocketBase direct update bypasses CW.controller entirely — no _state protection, no allow_on_submit check, no RBAC.
+
+The fix is PocketBase rules — server-side, not client-side. In PocketBase collection rules for item:
+
+Update rule:
+
+@request.auth.id != "" &&
+(owner = @request.auth.id || _allowed:each ?= @request.auth.id)
+But this only checks who can update — not which fields.
+
+PocketBase doesn't have per-field rules. So the real protection is:
+
+_state always writable — no PocketBase restriction needed, FSM signals are the intended path
+Data fields at docstatus > 0 — PocketBase can't enforce allow_on_submit per field
+The honest answer: client-side CW.controller is the only place allow_on_submit can be enforced in your current architecture. Direct PocketBase access bypasses it.
+
+For production security — either:
+
+Add a server-side hook in PocketBase that checks docstatus + allow_on_submit via a custom JS hook
+Or accept that CW.controller is the trust boundary and direct PB access requires admin credentials
+This is the same tradeoff Frappe makes — server enforces RBAC, but direct DB access bypasses everything.
+
+You said: my controller using pb calls, so i can not limit it
+my controller using pb calls, so i can not limit it
+
+12:56 PM
+Claude responded: Yes.
+Yes. Your controller IS the PocketBase client — it calls pb.collection('item').update() directly. You can't add a PocketBase rule that blocks your own controller calls without blocking legitimate FSM transitions too.
+
+The architectural options:
+
+Option 1 — PocketBase JS hooks (server-side) PocketBase supports onRecordBeforeUpdateRequest hooks in JS. Hook checks docstatus + which fields changed + allow_on_submit. Fires before any update including your controller. This is the real server-side enforcement.
+
+Option 2 — Separate _state from data in PocketBase Two collections — item for data fields, item_state for _state only. Different PocketBase rules per collection. item locked at docstatus > 0. item_state always writable. Your controller writes to the right collection based on what's changing.
+
+Option 3 — Accept controller as trust boundary Direct PB access = admin only. All user-facing operations go through CW.controller. Security model: API key + PocketBase rules restrict direct access to admin credentials only.
+
+Option 1 is cleanest — server enforces without architecture changes. Option 3 is pragmatic for your current stage. Option 2 is overengineering.
+
+What's your deployment model — is PocketBase accessible directly by end users or only through your app?
+
+
+
+
+
+
+
+
+
 # CW Users & Security
 
 Documents the user model, PocketBase security rules, provisioning flow,
